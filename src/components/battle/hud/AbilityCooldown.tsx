@@ -28,6 +28,9 @@ const AbilityCooldown: React.FC<AbilityCooldownProps> = ({ cooldown, maxCooldown
           Q
         </span>
       </div>
+      <div className="text-[10px] text-amber-300/80 tracking-wider uppercase text-center max-w-[70px] leading-tight font-semibold">
+        {abilityName}
+      </div>
       <div className="text-[9px] text-slate-500 tracking-wider uppercase text-center max-w-[60px]">
         {ready ? 'READY' : `${cooldown.toFixed(1)}s`}
       </div>

@@ -6,6 +6,7 @@ export function useInputManager() {
     keys: {},
     mouseDown: {},
     mouseDelta: { x: 0, y: 0 },
+    wheelDelta: 0,
   });
 
   useEffect(() => {
@@ -30,6 +31,9 @@ export function useInputManager() {
         input.mouseDelta.y += e.movementY;
       }
     };
+    const onWheel = (e: WheelEvent) => {
+      input.wheelDelta += e.deltaY;
+    };
     const onContextMenu = (e: Event) => e.preventDefault();
 
     document.addEventListener('keydown', onKeyDown);
@@ -37,6 +41,7 @@ export function useInputManager() {
     document.addEventListener('mousedown', onMouseDown);
     document.addEventListener('mouseup', onMouseUp);
     document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('wheel', onWheel, { passive: true });
     document.addEventListener('contextmenu', onContextMenu);
 
     return () => {
@@ -45,6 +50,7 @@ export function useInputManager() {
       document.removeEventListener('mousedown', onMouseDown);
       document.removeEventListener('mouseup', onMouseUp);
       document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('wheel', onWheel);
       document.removeEventListener('contextmenu', onContextMenu);
     };
   }, []);

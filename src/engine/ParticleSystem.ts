@@ -56,7 +56,7 @@ export class ParticleSystem {
     color: number,
     speed: number,
     onHit: (pos: THREE.Vector3) => void
-  ): { update: (dt: number) => boolean } {
+  ): { update: (dt: number) => boolean; mesh: THREE.Mesh } {
     const size = 0.12;
     const mesh = new THREE.Mesh(
       new THREE.SphereGeometry(size, 6, 6),
@@ -70,6 +70,7 @@ export class ParticleSystem {
     let life = 2.0;
 
     return {
+      mesh,
       update: (dt: number): boolean => {
         mesh.position.add(vel.clone().multiplyScalar(dt));
         life -= dt;
@@ -124,6 +125,27 @@ export class ParticleSystem {
           (Math.random() - 0.5) * 1.5
         ),
         life: 1.2,
+      });
+    }
+  }
+
+  createShieldBashEffect(pos: THREE.Vector3) {
+    for (let i = 0; i < 16; i++) {
+      const angle = (i / 16) * Math.PI * 2;
+      const mesh = new THREE.Mesh(
+        new THREE.BoxGeometry(0.1, 0.06, 0.1),
+        new THREE.MeshBasicMaterial({ color: 0xffd700 })
+      );
+      mesh.position.set(pos.x, pos.y + 1.0, pos.z);
+      this.scene.add(mesh);
+      this.particles.push({
+        mesh,
+        velocity: new THREE.Vector3(
+          Math.cos(angle) * 6,
+          0.5,
+          Math.sin(angle) * 6
+        ),
+        life: 0.6,
       });
     }
   }

@@ -22,9 +22,12 @@ export interface GameState {
   alliesPerWave: number;
   cameraAngleY: number;
   cameraAngleX: number;
+  cameraDistance: number;
+  isFirstPerson: boolean;
   abilityCooldown: number;
   abilityActive: boolean;
   backstabReady: boolean;
+  backstabTimer: number;
 }
 
 export interface UnitData {
@@ -57,6 +60,7 @@ export interface InputState {
   keys: Record<string, boolean>;
   mouseDown: Record<number, boolean>;
   mouseDelta: { x: number; y: number };
+  wheelDelta: number;
 }
 
 export interface HUDState {

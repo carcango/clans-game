@@ -2,17 +2,28 @@ import * as THREE from 'three';
 import { GameState, UnitData } from '../types/game';
 import { ClassStats, CLASS_STATS } from '../constants/stats';
 import { ParticleSystem } from './ParticleSystem';
+import { CombatSystem } from './CombatSystem';
 import { updateHealthBar, buildCharacter } from './VoxelCharacterBuilder';
 import { HERO_CLASSES } from '../constants/classes';
 import { HeroClass } from '../types/hero';
 
+interface AbilityProjectile {
+  mesh: THREE.Mesh;
+  update: (dt: number) => boolean;
+  damageMin: number;
+  damageMax: number;
+}
+
 export class AbilitySystem {
   private particles: ParticleSystem;
+  private combatSystem: CombatSystem;
   private scene: THREE.Scene;
+  private projectiles: AbilityProjectile[] = [];
 
-  constructor(scene: THREE.Scene, particles: ParticleSystem) {
+  constructor(scene: THREE.Scene, particles: ParticleSystem, combatSystem: CombatSystem) {
     this.scene = scene;
     this.particles = particles;
+    this.combatSystem = combatSystem;
   }
 
   activateAbility(
@@ -29,37 +40,52 @@ export class AbilitySystem {
     if (state.abilityCooldown > 0) return false;
     if (state.playerStamina < stats.abilityCost) return false;
 
-    state.playerStamina -= stats.abilityCost;
-    state.abilityCooldown = stats.abilityCooldownMax;
-    state.abilityActive = true;
+    let success = false;
 
     switch (classId) {
       case 'warrior':
-        return this.shieldBash(player, enemies, addCombatLog);
+        success = this.shieldBash(player, enemies, stats, addCombatLog);
+        break;
       case 'archer':
-        return this.arrowVolley(player, enemies, stats, addCombatLog);
+        success = this.arrowVolley(player, state.cameraAngleY, stats, addCombatLog);
+        break;
       case 'mage':
-        return this.fireball(player, enemies, stats, addCombatLog);
+        success = this.fireball(player, enemies, stats, addCombatLog);
+        break;
       case 'paladin':
-        return this.holyAura(player, allies, addCombatLog);
+        success = this.holyAura(player, allies, stats, addCombatLog);
+        break;
       case 'rogue':
         state.backstabReady = true;
-        addCombatLog('Backstab ready - next hit deals 3x damage!');
-        return true;
+        state.backstabTimer = 5;
+        addCombatLog('Backstab ready - next hit deals 3x damage! (5s)');
+        success = true;
+        break;
       case 'necromancer':
-        return this.raiseDead(player, enemies, allies, heroClass, addCombatLog, addAlly);
+        success = this.raiseDead(player, enemies, allies, stats, heroClass, addCombatLog, addAlly);
+        break;
       default:
         return false;
     }
+
+    if (success) {
+      state.playerStamina -= stats.abilityCost;
+      state.abilityCooldown = stats.abilityCooldownMax;
+      state.abilityActive = true;
+    }
+
+    return success;
   }
 
   private shieldBash(
     player: THREE.Group,
     enemies: THREE.Group[],
+    stats: ClassStats,
     addCombatLog: (text: string) => void
   ): boolean {
     const fwd = new THREE.Vector3(-Math.sin(player.rotation.y), 0, -Math.cos(player.rotation.y));
     let hitCount = 0;
+    const bashDmg = Math.floor((stats.attackMin + stats.attackMax) * 0.25);
 
     enemies.forEach((enemy) => {
       const data = enemy.userData as UnitData;
@@ -69,50 +95,48 @@ export class AbilitySystem {
       const dist = toE.length();
       if (dist < 4 && fwd.dot(toE.normalize()) > 0.2) {
         data.stunTimer = 1.5;
+        data.health -= bashDmg;
         const kb = toE.normalize().multiplyScalar(3);
         enemy.position.add(kb);
-        this.particles.createBlockSparks(enemy.position);
+        this.particles.createBloodEffect(enemy.position);
+        if (data.health > 0) {
+          updateHealthBar(enemy);
+        }
         hitCount++;
       }
     });
 
-    addCombatLog(`Shield Bash hit ${hitCount} enemies!`);
+    this.particles.createShieldBashEffect(player.position);
+    addCombatLog(`Shield Bash hit ${hitCount} enemies for ${bashDmg} each!`);
     return true;
   }
 
   private arrowVolley(
     player: THREE.Group,
-    enemies: THREE.Group[],
+    cameraAngleY: number,
     stats: ClassStats,
     addCombatLog: (text: string) => void
   ): boolean {
-    const baseFwd = new THREE.Vector3(-Math.sin(player.rotation.y), 0, -Math.cos(player.rotation.y));
+    const baseFwd = new THREE.Vector3(Math.sin(cameraAngleY), 0, Math.cos(cameraAngleY));
     const spreadAngles = [-0.3, -0.15, 0, 0.15, 0.3];
 
     spreadAngles.forEach((angle) => {
       const dir = baseFwd.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), angle);
+      const spawnPos = player.position.clone().add(dir.clone().multiplyScalar(2));
       const proj = this.particles.createProjectile(
-        player.position.clone(),
+        spawnPos,
         dir,
         0xe9c46a,
         35,
-        (_pos) => {}
+        () => {}
       );
 
-      // Simple projectile tracking
-      const checkHits = () => {
-        const alive = proj.update(0.016);
-        if (!alive) return;
-
-        // Check hits against enemies
-        for (const enemy of enemies) {
-          const eData = enemy.userData as UnitData;
-          if (eData.health <= 0) continue;
-          // Approximate hit check using small radius
-        }
-        requestAnimationFrame(checkHits);
-      };
-      // We'll handle projectile hits in the main game loop instead
+      this.projectiles.push({
+        mesh: proj.mesh,
+        update: proj.update,
+        damageMin: stats.attackMin,
+        damageMax: stats.attackMax,
+      });
     });
 
     addCombatLog('Arrow Volley fired!');
@@ -128,7 +152,6 @@ export class AbilitySystem {
     const fwd = new THREE.Vector3(-Math.sin(player.rotation.y), 0, -Math.cos(player.rotation.y));
     const targetPos = player.position.clone().add(fwd.multiplyScalar(8));
 
-    // AoE damage at target position
     let totalDmg = 0;
     enemies.forEach((enemy) => {
       const data = enemy.userData as UnitData;
@@ -152,15 +175,17 @@ export class AbilitySystem {
   private holyAura(
     player: THREE.Group,
     allies: THREE.Group[],
+    stats: ClassStats,
     addCombatLog: (text: string) => void
   ): boolean {
+    const healAmount = Math.floor(stats.attackMax * 0.5);
     let healed = 0;
     allies.forEach((ally) => {
       const data = ally.userData as UnitData;
       if (data.health <= 0) return;
       const dist = ally.position.distanceTo(player.position);
       if (dist < 10) {
-        data.health = Math.min(data.maxHealth, data.health + 15);
+        data.health = Math.min(data.maxHealth, data.health + healAmount);
         updateHealthBar(ally);
         this.particles.createHealEffect(ally.position);
         healed++;
@@ -168,7 +193,7 @@ export class AbilitySystem {
     });
 
     this.particles.createHealEffect(player.position);
-    addCombatLog(`Holy Aura healed ${healed} allies!`);
+    addCombatLog(`Holy Aura healed ${healed} allies for ${healAmount} HP!`);
     return true;
   }
 
@@ -176,16 +201,16 @@ export class AbilitySystem {
     player: THREE.Group,
     enemies: THREE.Group[],
     allies: THREE.Group[],
+    stats: ClassStats,
     heroClass: HeroClass,
     addCombatLog: (text: string) => void,
     addAlly: (ally: THREE.Group) => void
   ): boolean {
-    // Find nearest dead enemy
     let nearest: THREE.Group | null = null;
     let nearestDist = Infinity;
     enemies.forEach((enemy) => {
       const data = enemy.userData as UnitData;
-      if (data.health > 0) return; // Only target dead enemies
+      if (data.health > 0) return;
       const dist = enemy.position.distanceTo(player.position);
       if (dist < 15 && dist < nearestDist) {
         nearestDist = dist;
@@ -194,17 +219,17 @@ export class AbilitySystem {
     });
 
     if (!nearest) {
-      // If no dead enemies, find lowest health enemy
       addCombatLog('No dead enemies nearby to raise!');
       return false;
     }
 
-    // Convert: create a new ally at that position with random class
     const pos = (nearest as THREE.Group).position.clone();
     const randomClass = HERO_CLASSES[Math.floor(Math.random() * HERO_CLASSES.length)];
     const classStats = CLASS_STATS[randomClass.id];
     const ally = buildCharacter({ heroClass: randomClass, team: 'ally' });
     ally.position.copy(pos);
+
+    const scaledHp = Math.floor(40 * (stats.hp / 90));
     const allyData = ally.userData as UnitData;
     allyData.team = 'ally';
     allyData.classId = randomClass.id;
@@ -212,8 +237,8 @@ export class AbilitySystem {
     allyData.attackRange = classStats.range;
     allyData.damageMin = classStats.attackMin;
     allyData.damageMax = classStats.attackMax;
-    allyData.health = 40;
-    allyData.maxHealth = 40;
+    allyData.health = scaledHp;
+    allyData.maxHealth = scaledHp;
     allyData.speed = 3.5;
     allyData.attackTimer = Math.random();
     allyData.attackCooldown = classStats.attackType === 'ranged' ? 1.8 : 1.0;
@@ -226,16 +251,58 @@ export class AbilitySystem {
 
     this.particles.createMagicEffect(pos, 0x95d5b2, 3);
     addAlly(ally);
-    addCombatLog('Raised a dead enemy as an ally!');
+    addCombatLog(`Raised a dead enemy as an ally! (${scaledHp} HP)`);
     return true;
   }
 
-  update(dt: number, state: GameState) {
+  update(
+    dt: number,
+    state: GameState,
+    enemies: THREE.Group[],
+    onKillEnemy: (enemy: THREE.Group) => void,
+    addCombatLog: (text: string) => void
+  ) {
     if (state.abilityCooldown > 0) {
       state.abilityCooldown = Math.max(0, state.abilityCooldown - dt);
     }
     if (state.abilityCooldown <= 0) {
       state.abilityActive = false;
+    }
+
+    // Backstab timeout
+    if (state.backstabReady && state.backstabTimer > 0) {
+      state.backstabTimer -= dt;
+      if (state.backstabTimer <= 0) {
+        state.backstabReady = false;
+        state.backstabTimer = 0;
+        addCombatLog('Backstab expired!');
+      }
+    }
+
+    // Update Arrow Volley projectiles
+    for (let i = this.projectiles.length - 1; i >= 0; i--) {
+      const proj = this.projectiles[i];
+      const alive = proj.update(dt);
+      if (!alive) {
+        this.projectiles.splice(i, 1);
+        continue;
+      }
+
+      const result = this.combatSystem.checkRangedHit(
+        proj.mesh.position,
+        enemies,
+        proj.damageMin,
+        proj.damageMax,
+        0,
+        onKillEnemy
+      );
+
+      if (result.hit) {
+        this.scene.remove(proj.mesh);
+        proj.mesh.geometry.dispose();
+        (proj.mesh.material as THREE.Material).dispose();
+        this.projectiles.splice(i, 1);
+      }
     }
   }
 }

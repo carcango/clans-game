@@ -8,6 +8,8 @@ import {
   ATTACK_DURATION, ATTACK_COOLDOWN, ATTACK_STAMINA_COST,
   SPRINT_STAMINA_COST, STAMINA_REGEN_RATE, BLOCK_STAMINA_DRAIN,
   CAMERA_SENSITIVITY, PROJECTILE_SPEED,
+  CAMERA_MIN_DISTANCE, CAMERA_MAX_DISTANCE, CAMERA_HEIGHT,
+  CAMERA_LERP_SPEED, CAMERA_FP_EYE_HEIGHT,
 } from '../constants/game';
 
 interface Projectile {
@@ -71,8 +73,8 @@ export class PlayerController {
     const { keys } = this.input;
     const state = this.state;
     const moveDir = new THREE.Vector3();
-    const forward = new THREE.Vector3(-Math.sin(state.cameraAngleY), 0, -Math.cos(state.cameraAngleY));
-    const right = new THREE.Vector3(-Math.cos(state.cameraAngleY), 0, Math.sin(state.cameraAngleY));
+    const forward = new THREE.Vector3(Math.sin(state.cameraAngleY), 0, Math.cos(state.cameraAngleY));
+    const right = new THREE.Vector3(Math.cos(state.cameraAngleY), 0, -Math.sin(state.cameraAngleY));
 
     if (keys['KeyW']) moveDir.add(forward);
     if (keys['KeyS']) moveDir.sub(forward);
@@ -201,9 +203,9 @@ export class PlayerController {
 
   private fireProjectile() {
     const fwd = new THREE.Vector3(
-      -Math.sin(this.state.cameraAngleY),
+      Math.sin(this.state.cameraAngleY),
       0,
-      -Math.cos(this.state.cameraAngleY)
+      Math.cos(this.state.cameraAngleY)
     );
 
     let color = 0xcccccc;
@@ -275,20 +277,65 @@ export class PlayerController {
 
   private updateCamera(dt: number) {
     const state = this.state;
+    const PI = Math.PI;
+
+    // Mouse look
     state.cameraAngleY -= this.input.mouseDelta.x * CAMERA_SENSITIVITY;
     state.cameraAngleX += this.input.mouseDelta.y * CAMERA_SENSITIVITY;
-    state.cameraAngleX = Math.max(-0.5, Math.min(1.2, state.cameraAngleX));
+    state.cameraAngleX = Math.max(-PI / 3, Math.min(PI / 3, state.cameraAngleX));
     this.input.mouseDelta.x = 0;
     this.input.mouseDelta.y = 0;
 
-    const cx = this.player.position.x + Math.sin(state.cameraAngleY) * 5;
-    const cz = this.player.position.z + Math.cos(state.cameraAngleY) * 5;
-    const cy = this.player.position.y + 3.5 + state.cameraAngleX * 2.5;
-
-    this.camera.position.lerp(new THREE.Vector3(cx, cy, cz), 8 * dt);
-    this.camera.lookAt(
-      new THREE.Vector3(this.player.position.x, this.player.position.y + 2.2, this.player.position.z)
+    // Zoom via scroll wheel
+    state.cameraDistance = Math.max(
+      CAMERA_MIN_DISTANCE,
+      Math.min(CAMERA_MAX_DISTANCE, state.cameraDistance + this.input.wheelDelta * 0.01)
     );
+    this.input.wheelDelta = 0;
+
+    // R key toggle first-person / third-person
+    if (this.input.keys['KeyR']) {
+      this.input.keys['KeyR'] = false;
+      state.isFirstPerson = !state.isFirstPerson;
+      this.player.visible = !state.isFirstPerson;
+    }
+
+    if (state.isFirstPerson) {
+      // First-person camera
+      this.camera.position.set(
+        this.player.position.x,
+        this.player.position.y + CAMERA_FP_EYE_HEIGHT,
+        this.player.position.z
+      );
+      const lookTarget = new THREE.Vector3(
+        this.camera.position.x + Math.sin(state.cameraAngleY) * 10,
+        this.camera.position.y - Math.tan(state.cameraAngleX) * 10,
+        this.camera.position.z + Math.cos(state.cameraAngleY) * 10
+      );
+      this.camera.lookAt(lookTarget);
+    } else {
+      // Third-person spherical orbit
+      const dist = state.cameraDistance;
+      const angleY = state.cameraAngleY;
+      const angleX = state.cameraAngleX;
+
+      const offsetX = -Math.sin(angleY) * dist * Math.cos(angleX);
+      const offsetY = CAMERA_HEIGHT + Math.sin(angleX) * dist;
+      const offsetZ = -Math.cos(angleY) * dist * Math.cos(angleX);
+
+      const targetPos = new THREE.Vector3(
+        this.player.position.x + offsetX,
+        this.player.position.y + offsetY,
+        this.player.position.z + offsetZ
+      );
+
+      this.camera.position.lerp(targetPos, CAMERA_LERP_SPEED);
+      this.camera.lookAt(
+        this.player.position.x,
+        this.player.position.y + 1.5,
+        this.player.position.z
+      );
+    }
   }
 
   getPosition(): THREE.Vector3 {

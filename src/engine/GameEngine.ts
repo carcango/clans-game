@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { GameState, InputState, HUDState, UnitData, CombatLogEntry } from '../types/game';
 import { HeroClass } from '../types/hero';
 import { getScaledStats, ClassStats } from '../constants/stats';
-import { BASE_ENEMIES_PER_WAVE, BASE_ALLIES_PER_WAVE } from '../constants/game';
+import { BASE_ENEMIES_PER_WAVE, BASE_ALLIES_PER_WAVE, CAMERA_DEFAULT_DISTANCE } from '../constants/game';
 import { createBattleScene, handleResize, disposeScene, SceneContext } from './SceneSetup';
 import { buildTerrain } from './TerrainBuilder';
 import { buildCharacter } from './VoxelCharacterBuilder';
@@ -75,9 +75,12 @@ export class GameEngine {
       alliesPerWave: BASE_ALLIES_PER_WAVE,
       cameraAngleY: 0,
       cameraAngleX: 0.3,
+      cameraDistance: CAMERA_DEFAULT_DISTANCE,
+      isFirstPerson: false,
       abilityCooldown: 0,
       abilityActive: false,
       backstabReady: false,
+      backstabTimer: 0,
     };
 
     buildTerrain(this.ctx.scene);
@@ -97,7 +100,7 @@ export class GameEngine {
     this.allyManager = new AllyManager(this.ctx.scene, this.combatSystem);
     this.enemyManager = new EnemyManager(this.ctx.scene, this.combatSystem);
     this.waveManager = new WaveManager(this.ctx.scene);
-    this.abilitySystem = new AbilitySystem(this.ctx.scene, this.particleSystem);
+    this.abilitySystem = new AbilitySystem(this.ctx.scene, this.particleSystem, this.combatSystem);
 
     this.playerController = new PlayerController(
       this.player,
@@ -177,7 +180,11 @@ export class GameEngine {
       (text) => this.showWaveBanner(text),
       (text) => this.addCombatLog(text)
     );
-    this.abilitySystem.update(dt, this.state);
+    this.abilitySystem.update(
+      dt, this.state, this.enemies,
+      (enemy) => this.handleEnemyKill(enemy),
+      (text) => this.addCombatLog(text)
+    );
     this.particleSystem.update(dt);
 
     // Update minimap
