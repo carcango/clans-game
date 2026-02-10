@@ -34,6 +34,7 @@ export interface UnitData {
   team: 'player' | 'ally' | 'enemy';
   health: number;
   maxHealth: number;
+  unitLevel?: number;
   speed: number;
   attackTimer: number;
   attackCooldown: number;
@@ -47,6 +48,10 @@ export interface UnitData {
   stateTimer?: number;
   rightArm: THREE.Group;
   leftArm: THREE.Group;
+  leftLeg: THREE.Group;
+  rightLeg: THREE.Group;
+  headGroup: THREE.Group;
+  torso: THREE.Mesh;
   hbCanvas?: HTMLCanvasElement;
   hbTex?: THREE.CanvasTexture;
   classId?: string;
@@ -54,6 +59,11 @@ export interface UnitData {
   attackRange?: number;
   damageMin?: number;
   damageMax?: number;
+  moveSpeed: number;
+  hitReactTimer: number;
+  hitFlashTimer: number;
+  hitReactDirection: THREE.Vector3;
+  animTimeOffset: number;
 }
 
 export interface InputState {
@@ -78,10 +88,7 @@ export interface HUDState {
   abilityMaxCooldown: number;
 }
 
-export interface CombatLogEntry {
-  text: string;
-  time: number;
-}
+export type ToastType = 'success' | 'error' | 'info';
 
 export interface ParticleData {
   mesh: THREE.Mesh;

@@ -6,10 +6,12 @@ interface DamageOverlayProps {
 
 const DamageOverlay: React.FC<DamageOverlayProps> = ({ active }) => (
   <div
-    className="fixed inset-0 z-[12] transition-[border-color] duration-100"
+    className="fixed inset-0 z-[12] transition-all duration-120"
     style={{
-      border: '8px solid transparent',
-      borderColor: active ? 'rgba(192,57,43,0.6)' : 'transparent',
+      background: active
+        ? 'radial-gradient(circle at 50% 50%, transparent 55%, rgba(196,64,64,0.45) 100%)'
+        : 'none',
+      boxShadow: active ? 'inset 0 0 0 8px rgba(196,64,64,0.6)' : 'inset 0 0 0 0 rgba(196,64,64,0)',
       pointerEvents: 'none',
     }}
   />

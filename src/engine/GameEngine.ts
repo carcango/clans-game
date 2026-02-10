@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { GameState, InputState, HUDState, UnitData, CombatLogEntry } from '../types/game';
+import { toast } from 'sonner';
+import { GameState, InputState, HUDState, UnitData, ToastType } from '../types/game';
 import { HeroClass } from '../types/hero';
 import { getScaledStats, ClassStats } from '../constants/stats';
 import { BASE_ENEMIES_PER_WAVE, BASE_ALLIES_PER_WAVE, CAMERA_DEFAULT_DISTANCE } from '../constants/game';
@@ -14,6 +15,7 @@ import { CombatSystem } from './CombatSystem';
 import { ParticleSystem } from './ParticleSystem';
 import { AbilitySystem } from './AbilitySystem';
 import { MinimapRenderer } from './MinimapRenderer';
+import { DamageNumberSystem } from './DamageNumberSystem';
 
 export class GameEngine {
   private ctx!: SceneContext;
@@ -35,9 +37,9 @@ export class GameEngine {
   private combatSystem!: CombatSystem;
   private particleSystem!: ParticleSystem;
   private abilitySystem!: AbilitySystem;
+  private damageNumbers!: DamageNumberSystem;
   private minimapRenderer: MinimapRenderer | null = null;
 
-  private combatLog: CombatLogEntry[] = [];
   private waveBannerText = '';
   private waveBannerTimer = 0;
   private damageFlashTimer = 0;
@@ -96,9 +98,11 @@ export class GameEngine {
 
     // Init systems
     this.particleSystem = new ParticleSystem(this.ctx.scene);
+    this.damageNumbers = new DamageNumberSystem(this.ctx.scene);
     this.combatSystem = new CombatSystem(this.particleSystem);
-    this.allyManager = new AllyManager(this.ctx.scene, this.combatSystem);
-    this.enemyManager = new EnemyManager(this.ctx.scene, this.combatSystem);
+    this.combatSystem.setDamageNumbers(this.damageNumbers);
+    this.allyManager = new AllyManager(this.ctx.scene, this.combatSystem, this.particleSystem);
+    this.enemyManager = new EnemyManager(this.ctx.scene, this.combatSystem, this.particleSystem);
     this.waveManager = new WaveManager(this.ctx.scene);
     this.abilitySystem = new AbilitySystem(this.ctx.scene, this.particleSystem, this.combatSystem);
 
@@ -112,8 +116,8 @@ export class GameEngine {
       this.heroClass.id,
       this.combatSystem,
       this.particleSystem,
-      (text) => this.addCombatLog(text),
-      (enemy) => this.handleEnemyKill(enemy),
+      (text, type) => this.addCombatLog(text, type),
+      (enemy) => this.handleEnemyKillByPlayer(enemy),
       (dmg) => this.handlePlayerDamage(dmg)
     );
 
@@ -136,13 +140,13 @@ export class GameEngine {
     if (this.input.keys['KeyF']) {
       this.input.keys['KeyF'] = false;
       this.state.allyCommand = 'follow';
-      this.addCombatLog('Rally to me!');
+      this.addCombatLog('Rally to me!', 'info');
       this.showWaveBanner('Rally!');
     }
     if (this.input.keys['KeyG']) {
       this.input.keys['KeyG'] = false;
       this.state.allyCommand = 'charge';
-      this.addCombatLog('Charge!!!');
+      this.addCombatLog('Charge!!!', 'info');
       this.showWaveBanner('Charge!');
     }
     if (this.input.keys['KeyQ']) {
@@ -155,7 +159,7 @@ export class GameEngine {
         this.enemies,
         this.allies,
         this.heroClass,
-        (text) => this.addCombatLog(text),
+        (text, type) => this.addCombatLog(text, type),
         (ally) => {
           this.ctx.scene.add(ally);
           this.allies.push(ally);
@@ -167,7 +171,7 @@ export class GameEngine {
     this.allyManager.update(
       dt, this.allies, this.enemies, this.player,
       this.state.allyCommand, this.state.wave,
-      (enemy) => this.handleEnemyKill(enemy)
+      (enemy) => this.handleEnemyKillByAlly(enemy)
     );
     this.enemyManager.update(
       dt, this.enemies, this.allies, this.player, this.state.wave,
@@ -178,14 +182,15 @@ export class GameEngine {
     this.waveManager.update(
       dt, this.state, this.player, this.enemies, this.allies,
       (text) => this.showWaveBanner(text),
-      (text) => this.addCombatLog(text)
+      (text, type) => this.addCombatLog(text, type)
     );
     this.abilitySystem.update(
       dt, this.state, this.enemies,
-      (enemy) => this.handleEnemyKill(enemy),
-      (text) => this.addCombatLog(text)
+      (enemy) => this.handleEnemyKillByPlayer(enemy),
+      (text, type) => this.addCombatLog(text, type)
     );
     this.particleSystem.update(dt);
+    this.damageNumbers.update(dt);
 
     // Update minimap
     if (this.minimapRenderer) {
@@ -195,10 +200,6 @@ export class GameEngine {
     // Update timers
     if (this.waveBannerTimer > 0) this.waveBannerTimer -= dt;
     if (this.damageFlashTimer > 0) this.damageFlashTimer -= dt;
-
-    // Clean up combat log
-    const now = performance.now();
-    this.combatLog = this.combatLog.filter((e) => now - e.time < 3000);
   }
 
   render() {
@@ -225,10 +226,6 @@ export class GameEngine {
     };
   }
 
-  getCombatLog(): CombatLogEntry[] {
-    return this.combatLog;
-  }
-
   getWaveBanner(): string | null {
     return this.waveBannerTimer > 0 ? this.waveBannerText : null;
   }
@@ -249,12 +246,26 @@ export class GameEngine {
     };
   }
 
-  private handleEnemyKill(enemy: THREE.Group) {
+  private handleEnemyKillByPlayer(enemy: THREE.Group) {
+    const data = enemy.userData as UnitData;
+    const className = data.classId ? data.classId.charAt(0).toUpperCase() + data.classId.slice(1) : 'Enemy';
     this.state.kills++;
+    this.addCombatLog(`Killed ${className}!`, 'success');
+    this.killUnit(enemy, this.enemies);
+  }
+
+  private handleEnemyKillByAlly(enemy: THREE.Group) {
+    const data = enemy.userData as UnitData;
+    const className = data.classId ? data.classId.charAt(0).toUpperCase() + data.classId.slice(1) : 'Enemy';
+    this.state.kills++;
+    this.addCombatLog(`Ally killed ${className}!`, 'success');
     this.killUnit(enemy, this.enemies);
   }
 
   private handleAllyKill(ally: THREE.Group) {
+    const data = ally.userData as UnitData;
+    const className = data.classId ? data.classId.charAt(0).toUpperCase() + data.classId.slice(1) : 'Ally';
+    this.addCombatLog(`${className} ally fallen!`, 'error');
     this.killUnit(ally, this.allies);
   }
 
@@ -265,8 +276,9 @@ export class GameEngine {
       return;
     }
     this.state.playerHealth -= dmg;
-    this.addCombatLog(`Took ${dmg} damage!`);
     this.damageFlashTimer = 0.15;
+    this.playerController.triggerShake(0.3 + dmg * 0.01);
+    this.damageNumbers.spawn(this.player.position, dmg);
     if (this.state.playerHealth <= 0) {
       this.state.playerHealth = 0;
       this.state.over = true;
@@ -277,12 +289,19 @@ export class GameEngine {
     const data = unit.userData as UnitData;
     data.health = 0;
 
-    // Death animation
+    // Death explosion particles
+    this.particleSystem.createDeathExplosion(unit.position, data.team);
+
+    // Enhanced death animation: dramatic rotation + slight spin + scale-down
     let progress = 0;
+    const spinDir = Math.random() > 0.5 ? 1 : -1;
     const animate = () => {
-      progress += 0.035;
+      progress += 0.04;
       unit.rotation.x = (Math.PI / 2) * Math.min(1, progress);
+      unit.rotation.z = spinDir * progress * 0.3;
       unit.position.y = Math.max(-0.3, -progress * 0.5);
+      const s = Math.max(0.01, 1 - progress * 0.3);
+      unit.scale.setScalar(s);
       if (progress < 1.5) {
         requestAnimationFrame(animate);
       } else {
@@ -290,15 +309,14 @@ export class GameEngine {
           this.ctx.scene.remove(unit);
           const idx = array.indexOf(unit);
           if (idx !== -1) array.splice(idx, 1);
-        }, 4000);
+        }, 2000);
       }
     };
     animate();
   }
 
-  private addCombatLog(text: string) {
-    this.combatLog.push({ text, time: performance.now() });
-    if (this.combatLog.length > 8) this.combatLog.shift();
+  private addCombatLog(text: string, type: ToastType = 'info') {
+    toast[type](text);
   }
 
   private showWaveBanner(text: string) {
@@ -314,6 +332,7 @@ export class GameEngine {
     this.enemyManager.dispose();
     this.allyManager.dispose();
     this.particleSystem.dispose();
+    this.damageNumbers.dispose();
     disposeScene(this.ctx);
   }
 }

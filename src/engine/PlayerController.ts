@@ -1,8 +1,13 @@
 import * as THREE from 'three';
-import { GameState, InputState, UnitData } from '../types/game';
+import { GameState, InputState, UnitData, ToastType } from '../types/game';
 import { ClassStats } from '../constants/stats';
 import { CombatSystem } from './CombatSystem';
 import { ParticleSystem } from './ParticleSystem';
+import {
+  updateIdleAnimation, updateLocomotionAnimation,
+  updateMeleeAttackAnimation, updateRangedAttackAnimation,
+  updateHitReaction, updateHitFlash, resetAttackPose,
+} from './UnitAnimator';
 import {
   GRAVITY, JUMP_VELOCITY, TERRAIN_HALF,
   ATTACK_DURATION, ATTACK_COOLDOWN, ATTACK_STAMINA_COST,
@@ -16,6 +21,7 @@ interface Projectile {
   mesh: THREE.Mesh;
   velocity: THREE.Vector3;
   life: number;
+  frameCount: number;
 }
 
 export class PlayerController {
@@ -30,9 +36,15 @@ export class PlayerController {
   private scene: THREE.Scene;
   private hitEnemiesThisSwing = new Set<THREE.Group>();
   private projectiles: Projectile[] = [];
-  private addCombatLog: (text: string) => void;
+  private addCombatLog: (text: string, type?: ToastType) => void;
   private onKillEnemy: (enemy: THREE.Group) => void;
   private onPlayerHit: (dmg: number) => void;
+  private time = 0;
+  private currentSpeed = 0;
+
+  // Camera shake
+  private shakeIntensity = 0;
+  private shakeDecay = 8;
 
   constructor(
     player: THREE.Group,
@@ -44,7 +56,7 @@ export class PlayerController {
     classId: string,
     combat: CombatSystem,
     particles: ParticleSystem,
-    addCombatLog: (text: string) => void,
+    addCombatLog: (text: string, type?: ToastType) => void,
     onKillEnemy: (enemy: THREE.Group) => void,
     onPlayerHit: (dmg: number) => void
   ) {
@@ -62,10 +74,16 @@ export class PlayerController {
     this.onPlayerHit = onPlayerHit;
   }
 
+  triggerShake(intensity: number) {
+    this.shakeIntensity = Math.max(this.shakeIntensity, intensity);
+  }
+
   update(dt: number, enemies: THREE.Group[]) {
+    this.time += dt;
     this.updateMovement(dt);
     this.updateCombat(dt, enemies);
     this.updateProjectiles(dt, enemies);
+    this.updateAnimations(dt);
     this.updateCamera(dt);
   }
 
@@ -95,6 +113,9 @@ export class PlayerController {
       while (d > Math.PI) d -= Math.PI * 2;
       while (d < -Math.PI) d += Math.PI * 2;
       this.player.rotation.y += d * 8 * dt;
+      this.currentSpeed = speed;
+    } else {
+      this.currentSpeed = 0;
     }
 
     // Jump
@@ -125,7 +146,6 @@ export class PlayerController {
   private updateCombat(dt: number, enemies: THREE.Group[]) {
     const { mouseDown } = this.input;
     const state = this.state;
-    const rightArm = this.player.userData.rightArm as THREE.Group;
     const leftArm = this.player.userData.leftArm as THREE.Group;
 
     // Block
@@ -156,17 +176,8 @@ export class PlayerController {
       state.attackTimer -= dt;
       const progress = 1 - state.attackTimer / ATTACK_DURATION;
 
-      if (progress < 0.4) {
-        rightArm.rotation.x = -2.0 * (progress / 0.4);
-        rightArm.rotation.z = 0.3 * (progress / 0.4);
-      } else {
-        const sp = (progress - 0.4) / 0.6;
-        rightArm.rotation.x = -2.0 + 3.0 * sp;
-        rightArm.rotation.z = 0.3 - 0.8 * sp;
-      }
-
-      // Melee hit check
-      if (this.stats.attackType === 'melee' && progress > 0.35 && progress < 0.65) {
+      // Melee hit check at strike phase
+      if (this.stats.attackType === 'melee' && progress > 0.25 && progress < 0.55) {
         const dmgMult = state.backstabReady ? 3 : 1;
         const result = this.combat.checkMeleeHit(
           this.player,
@@ -179,25 +190,48 @@ export class PlayerController {
           dmgMult
         );
         if (result.hit) {
-          if (result.damage > 0) {
-            this.addCombatLog(
-              state.backstabReady
-                ? `Backstab! ${result.damage} damage!`
-                : `Hit for ${result.damage} damage!`
-            );
-            if (state.backstabReady) state.backstabReady = false;
-          } else {
-            this.addCombatLog('Attack blocked!');
+          this.triggerShake(0.15);
+          if (result.damage > 0 && state.backstabReady) {
+            this.addCombatLog(`Backstab! ${result.damage} damage!`, 'success');
+            state.backstabReady = false;
           }
         }
+      }
+
+      // Slash trail at start of strike phase
+      if (this.stats.attackType === 'melee' && progress > 0.24 && progress < 0.28) {
+        const fwd = new THREE.Vector3(Math.sin(this.player.rotation.y), 0, Math.cos(this.player.rotation.y));
+        const slashPos = this.player.position.clone().add(fwd.multiplyScalar(2));
+        slashPos.y += 2.0;
+        this.particles.createSlashTrail(slashPos, fwd, 0xcccccc);
       }
 
       if (state.attackTimer <= 0) {
         state.isAttacking = false;
         state.attackCooldownTimer = ATTACK_COOLDOWN;
-        rightArm.rotation.x = 0;
-        rightArm.rotation.z = 0;
+        resetAttackPose(this.player);
       }
+    }
+  }
+
+  private updateAnimations(dt: number) {
+    const state = this.state;
+
+    // Hit reaction & flash
+    updateHitReaction(this.player, dt);
+    updateHitFlash(this.player, dt);
+
+    if (state.isAttacking) {
+      const progress = 1 - state.attackTimer / ATTACK_DURATION;
+      if (this.stats.attackType === 'melee') {
+        updateMeleeAttackAnimation(this.player, progress);
+      } else {
+        updateRangedAttackAnimation(this.player, progress);
+      }
+    } else if (this.currentSpeed > 0.5) {
+      updateLocomotionAnimation(this.player, dt, this.time, this.currentSpeed);
+    } else {
+      updateIdleAnimation(this.player, dt, this.time);
     }
   }
 
@@ -225,6 +259,7 @@ export class PlayerController {
       mesh,
       velocity: fwd.clone().multiplyScalar(PROJECTILE_SPEED),
       life: 2.0,
+      frameCount: 0,
     });
   }
 
@@ -233,6 +268,16 @@ export class PlayerController {
       const proj = this.projectiles[i];
       proj.mesh.position.add(proj.velocity.clone().multiplyScalar(dt));
       proj.life -= dt;
+      proj.frameCount++;
+
+      // Projectile trail every 3 frames
+      if (proj.frameCount % 3 === 0) {
+        let color = 0xcccccc;
+        if (this.classId === 'mage') color = 0xb56576;
+        else if (this.classId === 'archer') color = 0xe9c46a;
+        else if (this.classId === 'necromancer') color = 0x95d5b2;
+        this.particles.createTrailParticle(proj.mesh.position, color);
+      }
 
       // Check hits
       let hit = false;
@@ -255,7 +300,6 @@ export class PlayerController {
             dmgMult
           );
           if (result.hit) {
-            this.addCombatLog(`Ranged hit for ${result.totalDamage} damage!`);
             if (this.state.backstabReady) this.state.backstabReady = false;
             if (this.classId === 'mage') {
               this.particles.createMagicEffect(proj.mesh.position, 0xff4400, 3);
@@ -300,6 +344,11 @@ export class PlayerController {
       this.player.visible = !state.isFirstPerson;
     }
 
+    // Camera shake decay
+    if (this.shakeIntensity > 0) {
+      this.shakeIntensity = Math.max(0, this.shakeIntensity - this.shakeDecay * dt);
+    }
+
     if (state.isFirstPerson) {
       // First-person camera
       this.camera.position.set(
@@ -335,6 +384,13 @@ export class PlayerController {
         this.player.position.y + 1.5,
         this.player.position.z
       );
+    }
+
+    // Apply camera shake
+    if (this.shakeIntensity > 0) {
+      this.camera.position.x += (Math.random() - 0.5) * this.shakeIntensity;
+      this.camera.position.y += (Math.random() - 0.5) * this.shakeIntensity;
+      this.camera.position.z += (Math.random() - 0.5) * this.shakeIntensity;
     }
   }
 

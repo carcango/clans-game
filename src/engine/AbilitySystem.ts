@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { GameState, UnitData } from '../types/game';
+import { GameState, UnitData, ToastType } from '../types/game';
 import { ClassStats, CLASS_STATS } from '../constants/stats';
 import { ParticleSystem } from './ParticleSystem';
 import { CombatSystem } from './CombatSystem';
@@ -34,7 +34,7 @@ export class AbilitySystem {
     enemies: THREE.Group[],
     allies: THREE.Group[],
     heroClass: HeroClass,
-    addCombatLog: (text: string) => void,
+    addCombatLog: (text: string, type?: ToastType) => void,
     addAlly: (ally: THREE.Group) => void
   ): boolean {
     if (state.abilityCooldown > 0) return false;
@@ -58,7 +58,7 @@ export class AbilitySystem {
       case 'rogue':
         state.backstabReady = true;
         state.backstabTimer = 5;
-        addCombatLog('Backstab ready - next hit deals 3x damage! (5s)');
+        addCombatLog('Backstab ready - next hit deals 3x damage! (5s)', 'info');
         success = true;
         break;
       case 'necromancer':
@@ -81,7 +81,7 @@ export class AbilitySystem {
     player: THREE.Group,
     enemies: THREE.Group[],
     stats: ClassStats,
-    addCombatLog: (text: string) => void
+    addCombatLog: (text: string, type?: ToastType) => void
   ): boolean {
     const fwd = new THREE.Vector3(-Math.sin(player.rotation.y), 0, -Math.cos(player.rotation.y));
     let hitCount = 0;
@@ -107,7 +107,7 @@ export class AbilitySystem {
     });
 
     this.particles.createShieldBashEffect(player.position);
-    addCombatLog(`Shield Bash hit ${hitCount} enemies for ${bashDmg} each!`);
+    addCombatLog(`Shield Bash hit ${hitCount} enemies for ${bashDmg} each!`, 'info');
     return true;
   }
 
@@ -115,7 +115,7 @@ export class AbilitySystem {
     player: THREE.Group,
     cameraAngleY: number,
     stats: ClassStats,
-    addCombatLog: (text: string) => void
+    addCombatLog: (text: string, type?: ToastType) => void
   ): boolean {
     const baseFwd = new THREE.Vector3(Math.sin(cameraAngleY), 0, Math.cos(cameraAngleY));
     const spreadAngles = [-0.3, -0.15, 0, 0.15, 0.3];
@@ -139,7 +139,7 @@ export class AbilitySystem {
       });
     });
 
-    addCombatLog('Arrow Volley fired!');
+    addCombatLog('Arrow Volley fired!', 'info');
     return true;
   }
 
@@ -147,7 +147,7 @@ export class AbilitySystem {
     player: THREE.Group,
     enemies: THREE.Group[],
     stats: ClassStats,
-    addCombatLog: (text: string) => void
+    addCombatLog: (text: string, type?: ToastType) => void
   ): boolean {
     const fwd = new THREE.Vector3(-Math.sin(player.rotation.y), 0, -Math.cos(player.rotation.y));
     const targetPos = player.position.clone().add(fwd.multiplyScalar(8));
@@ -168,7 +168,7 @@ export class AbilitySystem {
     });
 
     this.particles.createMagicEffect(targetPos, 0xff4400, 5);
-    addCombatLog(`Fireball dealt ${totalDmg} total damage!`);
+    addCombatLog(`Fireball dealt ${totalDmg} total damage!`, 'info');
     return true;
   }
 
@@ -176,7 +176,7 @@ export class AbilitySystem {
     player: THREE.Group,
     allies: THREE.Group[],
     stats: ClassStats,
-    addCombatLog: (text: string) => void
+    addCombatLog: (text: string, type?: ToastType) => void
   ): boolean {
     const healAmount = Math.floor(stats.attackMax * 0.5);
     let healed = 0;
@@ -193,7 +193,7 @@ export class AbilitySystem {
     });
 
     this.particles.createHealEffect(player.position);
-    addCombatLog(`Holy Aura healed ${healed} allies for ${healAmount} HP!`);
+    addCombatLog(`Holy Aura healed ${healed} allies for ${healAmount} HP!`, 'info');
     return true;
   }
 
@@ -203,7 +203,7 @@ export class AbilitySystem {
     allies: THREE.Group[],
     stats: ClassStats,
     heroClass: HeroClass,
-    addCombatLog: (text: string) => void,
+    addCombatLog: (text: string, type?: ToastType) => void,
     addAlly: (ally: THREE.Group) => void
   ): boolean {
     let nearest: THREE.Group | null = null;
@@ -219,7 +219,7 @@ export class AbilitySystem {
     });
 
     if (!nearest) {
-      addCombatLog('No dead enemies nearby to raise!');
+      addCombatLog('No dead enemies nearby to raise!', 'info');
       return false;
     }
 
@@ -241,7 +241,7 @@ export class AbilitySystem {
     allyData.maxHealth = scaledHp;
     allyData.speed = 3.5;
     allyData.attackTimer = Math.random();
-    allyData.attackCooldown = classStats.attackType === 'ranged' ? 1.8 : 1.0;
+    allyData.attackCooldown = classStats.attackType === 'ranged' ? 1.2 : 0.7;
     allyData.isAttacking = false;
     allyData.attackTime = 0;
     allyData.stunTimer = 0;
@@ -251,7 +251,7 @@ export class AbilitySystem {
 
     this.particles.createMagicEffect(pos, 0x95d5b2, 3);
     addAlly(ally);
-    addCombatLog(`Raised a dead enemy as an ally! (${scaledHp} HP)`);
+    addCombatLog(`Raised a dead enemy as an ally! (${scaledHp} HP)`, 'info');
     return true;
   }
 
@@ -260,7 +260,7 @@ export class AbilitySystem {
     state: GameState,
     enemies: THREE.Group[],
     onKillEnemy: (enemy: THREE.Group) => void,
-    addCombatLog: (text: string) => void
+    addCombatLog: (text: string, type?: ToastType) => void
   ) {
     if (state.abilityCooldown > 0) {
       state.abilityCooldown = Math.max(0, state.abilityCooldown - dt);
@@ -275,7 +275,7 @@ export class AbilitySystem {
       if (state.backstabTimer <= 0) {
         state.backstabReady = false;
         state.backstabTimer = 0;
-        addCombatLog('Backstab expired!');
+        addCombatLog('Backstab expired!', 'info');
       }
     }
 

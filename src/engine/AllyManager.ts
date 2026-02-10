@@ -3,10 +3,16 @@ import { UnitData } from '../types/game';
 import { CombatSystem } from './CombatSystem';
 import { updateHealthBar } from './VoxelCharacterBuilder';
 import {
+  updateIdleAnimation, updateLocomotionAnimation,
+  updateMeleeAttackAnimation, updateRangedAttackAnimation,
+  updateHitReaction, updateHitFlash, resetAttackPose,
+} from './UnitAnimator';
+import {
   TERRAIN_HALF,
   MELEE_ENGAGE_DIST, MELEE_HIT_DIST,
   RANGED_MIN_DIST, AI_PROJECTILE_SPEED, UNIT_AVOIDANCE_DIST,
 } from '../constants/game';
+import { ParticleSystem } from './ParticleSystem';
 
 interface AIProjectile {
   mesh: THREE.Mesh;
@@ -14,6 +20,8 @@ interface AIProjectile {
   life: number;
   damageMin: number;
   damageMax: number;
+  frameCount: number;
+  color: number;
 }
 
 const SHIELD_CLASSES = new Set(['warrior', 'paladin']);
@@ -21,11 +29,14 @@ const SHIELD_CLASSES = new Set(['warrior', 'paladin']);
 export class AllyManager {
   private scene: THREE.Scene;
   private combat: CombatSystem;
+  private particles: ParticleSystem | null = null;
   private projectiles: AIProjectile[] = [];
+  private time = 0;
 
-  constructor(scene: THREE.Scene, combat: CombatSystem) {
+  constructor(scene: THREE.Scene, combat: CombatSystem, particles?: ParticleSystem) {
     this.scene = scene;
     this.combat = combat;
+    this.particles = particles ?? null;
   }
 
   update(
@@ -37,6 +48,7 @@ export class AllyManager {
     wave: number,
     onKillEnemy: (enemy: THREE.Group) => void
   ) {
+    this.time += dt;
     const aliveEnemies = enemies.filter((e) => (e.userData as UnitData).health > 0);
 
     for (const ally of allies) {
@@ -45,6 +57,10 @@ export class AllyManager {
 
       data.stunTimer -= dt;
       if (data.stunTimer > 0) continue;
+
+      // Hit reaction & flash
+      updateHitReaction(ally, dt);
+      updateHitFlash(ally, dt);
 
       // Find closest enemy
       let closestEnemy: THREE.Group | null = null;
@@ -58,7 +74,7 @@ export class AllyManager {
       }
 
       const isRanged = data.attackType === 'ranged';
-      const engageDist = isRanged ? 15 : 10;
+      const engageDist = isRanged ? 18 : 12;
 
       // Determine target position
       let targetPos: THREE.Vector3;
@@ -92,7 +108,7 @@ export class AllyManager {
       const dir = toTarget.clone().normalize();
 
       // Face direction
-      if (closestEnemy && closestDist < (isRanged ? 15 : 5)) {
+      if (closestEnemy && closestDist < (isRanged ? 18 : 5)) {
         const toE = new THREE.Vector3().subVectors(closestEnemy.position, ally.position);
         toE.y = 0;
         const ta = Math.atan2(toE.x, toE.z);
@@ -108,6 +124,8 @@ export class AllyManager {
         ally.rotation.y += d2 * 5 * dt;
       }
 
+      let currentSpeed = 0;
+
       if (isRanged) {
         // Ranged ally behavior
         if (closestEnemy) {
@@ -117,15 +135,14 @@ export class AllyManager {
           const eDir = toEnemy.clone().normalize();
 
           if (eDist < RANGED_MIN_DIST) {
-            // Too close - back away
             ally.position.x -= eDir.x * data.speed * 0.7 * dt;
             ally.position.z -= eDir.z * data.speed * 0.7 * dt;
-          } else if (eDist > 15) {
-            // Too far - close in
+            currentSpeed = data.speed * 0.7;
+          } else if (eDist > 18) {
             ally.position.x += eDir.x * data.speed * dt;
             ally.position.z += eDir.z * data.speed * dt;
+            currentSpeed = data.speed;
           } else {
-            // In range - slight strafe
             data.stateTimer = (data.stateTimer ?? 0) - dt;
             if (data.stateTimer! <= 0) {
               data.strafeDir = (data.strafeDir ?? 1) * -1;
@@ -134,11 +151,12 @@ export class AllyManager {
             const strafe = new THREE.Vector3(-eDir.z, 0, eDir.x).multiplyScalar(data.strafeDir ?? 1);
             ally.position.x += strafe.x * data.speed * 0.4 * dt;
             ally.position.z += strafe.z * data.speed * 0.4 * dt;
+            currentSpeed = data.speed * 0.4;
           }
 
           // Ranged attack
           data.attackTimer -= dt;
-          if (data.attackTimer <= 0 && !data.isAttacking && eDist < 15) {
+          if (data.attackTimer <= 0 && !data.isAttacking && eDist < 18) {
             data.isAttacking = true;
             data.attackTime = 0;
             data.attackTimer = data.attackCooldown;
@@ -147,6 +165,7 @@ export class AllyManager {
         } else if (dist > 1.5) {
           ally.position.x += dir.x * data.speed * dt;
           ally.position.z += dir.z * data.speed * dt;
+          currentSpeed = data.speed;
         }
 
         // Ranged attack animation
@@ -154,11 +173,7 @@ export class AllyManager {
           data.attackTime += dt;
           const progress = data.attackTime / 0.5;
 
-          if (progress < 0.45) {
-            data.rightArm.rotation.x = -1.5 * (progress / 0.45);
-          } else {
-            data.rightArm.rotation.x = -1.5 + 1.5 * ((progress - 0.45) / 0.55);
-          }
+          updateRangedAttackAnimation(ally, progress);
 
           if (progress > 0.45 && progress < 0.55 && !data.hitThisSwing && closestEnemy) {
             data.hitThisSwing = true;
@@ -167,7 +182,7 @@ export class AllyManager {
 
           if (progress >= 1) {
             data.isAttacking = false;
-            data.rightArm.rotation.x = 0;
+            resetAttackPose(ally);
           }
         }
       } else {
@@ -183,6 +198,7 @@ export class AllyManager {
         } else if (dist > 1.5) {
           ally.position.x += dir.x * data.speed * dt;
           ally.position.z += dir.z * data.speed * dt;
+          currentSpeed = data.speed;
         }
 
         // Melee attack animation
@@ -190,14 +206,18 @@ export class AllyManager {
           data.attackTime += dt;
           const progress = data.attackTime / 0.4;
 
-          if (progress < 0.4) {
-            data.rightArm.rotation.x = -2.0 * (progress / 0.4);
-          } else {
-            data.rightArm.rotation.x = -2.0 + 3.0 * ((progress - 0.4) / 0.6);
+          updateMeleeAttackAnimation(ally, progress);
+
+          // Slash trail
+          if (progress > 0.24 && progress < 0.28 && this.particles) {
+            const fwd = new THREE.Vector3(Math.sin(ally.rotation.y), 0, Math.cos(ally.rotation.y));
+            const slashPos = ally.position.clone().add(fwd.multiplyScalar(1.5));
+            slashPos.y += 2.0;
+            this.particles.createSlashTrail(slashPos, fwd, 0x6699ff);
           }
 
           // Hit check
-          if (progress > 0.4 && progress < 0.65 && closestEnemy && closestDist < MELEE_HIT_DIST + 0.3 && !data.hitThisSwing) {
+          if (progress > 0.25 && progress < 0.55 && closestEnemy && closestDist < MELEE_HIT_DIST + 0.3 && !data.hitThisSwing) {
             data.hitThisSwing = true;
             const eData = closestEnemy.userData as UnitData;
             if (eData.isBlocking && Math.random() < 0.45) {
@@ -220,8 +240,17 @@ export class AllyManager {
 
           if (progress >= 1) {
             data.isAttacking = false;
-            data.rightArm.rotation.x = 0;
+            resetAttackPose(ally);
           }
+        }
+      }
+
+      // Animation: idle or locomotion when not attacking
+      if (!data.isAttacking) {
+        if (currentSpeed > 0.5) {
+          updateLocomotionAnimation(ally, dt, this.time, currentSpeed);
+        } else {
+          updateIdleAnimation(ally, dt, this.time);
         }
       }
 
@@ -290,6 +319,8 @@ export class AllyManager {
       life: 2.0,
       damageMin: data.damageMin ?? 10,
       damageMax: data.damageMax ?? 20,
+      frameCount: 0,
+      color,
     });
   }
 
@@ -303,6 +334,12 @@ export class AllyManager {
       const proj = this.projectiles[i];
       proj.mesh.position.add(proj.velocity.clone().multiplyScalar(dt));
       proj.life -= dt;
+      proj.frameCount++;
+
+      // Projectile trail
+      if (proj.frameCount % 3 === 0 && this.particles) {
+        this.particles.createTrailParticle(proj.mesh.position, proj.color);
+      }
 
       let hit = false;
 

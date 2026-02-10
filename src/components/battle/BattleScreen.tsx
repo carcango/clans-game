@@ -6,6 +6,7 @@ import { useInputManager } from '../../hooks/useInputManager';
 import { useGameLoop } from '../../hooks/useGameLoop';
 import HUD from './hud/HUD';
 import DeathScreen from './DeathScreen';
+import GameToaster from '../ui/game-toaster';
 
 interface BattleScreenProps {
   heroClass: HeroClass;
@@ -56,7 +57,13 @@ const BattleScreen: React.FC<BattleScreenProps> = ({ heroClass, onChangeHero }) 
     }
   }, [engine]);
 
-  const { hudState, combatLog, waveBanner, damageFlash, gameOver } = useGameLoop(engine);
+  const { hudState, waveBanner, damageFlash, gameOver } = useGameLoop(engine);
+
+  useEffect(() => {
+    if (gameOver) {
+      document.exitPointerLock();
+    }
+  }, [gameOver]);
 
   const handleRestart = useCallback(() => {
     if (!containerRef.current) return;
@@ -81,17 +88,18 @@ const BattleScreen: React.FC<BattleScreenProps> = ({ heroClass, onChangeHero }) 
   const deathStats = gameOver ? engineRef.current?.getDeathStats() : null;
 
   return (
-    <div className="relative w-full h-screen bg-black cursor-crosshair">
+    <div className="relative h-screen w-full cursor-crosshair bg-[var(--color-bg)]">
       <div ref={containerRef} className="w-full h-full" />
 
       <HUD
         hudState={hudState}
-        combatLog={combatLog}
         waveBanner={waveBanner}
         damageFlash={damageFlash}
         minimapRef={minimapRef}
         abilityName={stats.abilityName}
       />
+
+      <GameToaster offset={180} />
 
       {gameOver && deathStats && (
         <DeathScreen

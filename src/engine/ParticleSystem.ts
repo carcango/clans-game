@@ -129,6 +129,74 @@ export class ParticleSystem {
     }
   }
 
+  createDeathExplosion(pos: THREE.Vector3, team: 'ally' | 'enemy' | 'player') {
+    const teamColor = team === 'enemy' ? 0xaa2222 : team === 'ally' ? 0x2255aa : 0xcccccc;
+    const colors = [teamColor, 0x555555, 0x888888, teamColor];
+    for (let i = 0; i < 20; i++) {
+      const color = colors[Math.floor(Math.random() * colors.length)];
+      const mesh = new THREE.Mesh(
+        new THREE.BoxGeometry(0.12, 0.12, 0.12),
+        new THREE.MeshBasicMaterial({ color })
+      );
+      mesh.position.set(pos.x, pos.y + 1.5, pos.z);
+      this.scene.add(mesh);
+      const angle = (i / 20) * Math.PI * 2;
+      this.particles.push({
+        mesh,
+        velocity: new THREE.Vector3(
+          Math.cos(angle) * (3 + Math.random() * 3),
+          Math.random() * 4 + 2,
+          Math.sin(angle) * (3 + Math.random() * 3)
+        ),
+        life: 0.8 + Math.random() * 0.4,
+      });
+    }
+  }
+
+  createSlashTrail(pos: THREE.Vector3, direction: THREE.Vector3, color: number) {
+    const perp = new THREE.Vector3(-direction.z, 0, direction.x);
+    for (let i = 0; i < 5; i++) {
+      const t = (i / 4) - 0.5;
+      const mesh = new THREE.Mesh(
+        new THREE.BoxGeometry(0.04, 0.15, 0.04),
+        new THREE.MeshBasicMaterial({ color })
+      );
+      mesh.position.set(
+        pos.x + perp.x * t * 2,
+        pos.y + Math.abs(t) * 0.3,
+        pos.z + perp.z * t * 2
+      );
+      this.scene.add(mesh);
+      this.particles.push({
+        mesh,
+        velocity: new THREE.Vector3(
+          direction.x * 2 + (Math.random() - 0.5),
+          0.5 + Math.random(),
+          direction.z * 2 + (Math.random() - 0.5)
+        ),
+        life: 0.3,
+      });
+    }
+  }
+
+  createTrailParticle(pos: THREE.Vector3, color: number) {
+    const mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(0.05, 0.05, 0.05),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.6 })
+    );
+    mesh.position.set(
+      pos.x + (Math.random() - 0.5) * 0.2,
+      pos.y + (Math.random() - 0.5) * 0.2,
+      pos.z + (Math.random() - 0.5) * 0.2
+    );
+    this.scene.add(mesh);
+    this.particles.push({
+      mesh,
+      velocity: new THREE.Vector3(0, 0.3, 0),
+      life: 0.4,
+    });
+  }
+
   createShieldBashEffect(pos: THREE.Vector3) {
     for (let i = 0; i < 16; i++) {
       const angle = (i / 16) * Math.PI * 2;

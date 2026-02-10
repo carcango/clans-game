@@ -240,16 +240,28 @@ export function buildCharacter(options: CharacterBuildOptions): THREE.Group {
   headGroup.position.y = 2.9;
   group.add(headGroup);
 
-  // Legs
-  [-0.35, 0.35].forEach((xOff) => {
-    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.8, 0.4), armorMat);
-    leg.position.set(xOff, 0.6, 0);
-    leg.castShadow = true;
-    group.add(leg);
-    const boot = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.25, 0.5), matBrown());
-    boot.position.set(xOff, 0.15, 0.05);
-    group.add(boot);
-  });
+  // Legs - each leg is a Group with hip-joint pivot for animation
+  const leftLegGroup = new THREE.Group();
+  leftLegGroup.position.set(-0.35, 1.0, 0); // pivot at hip
+  const leftLegMesh = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.8, 0.4), armorMat);
+  leftLegMesh.position.set(0, -0.4, 0); // offset from pivot
+  leftLegMesh.castShadow = true;
+  leftLegGroup.add(leftLegMesh);
+  const leftBoot = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.25, 0.5), matBrown());
+  leftBoot.position.set(0, -0.85, 0.05);
+  leftLegGroup.add(leftBoot);
+  group.add(leftLegGroup);
+
+  const rightLegGroup = new THREE.Group();
+  rightLegGroup.position.set(0.35, 1.0, 0); // pivot at hip
+  const rightLegMesh = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.8, 0.4), armorMat);
+  rightLegMesh.position.set(0, -0.4, 0);
+  rightLegMesh.castShadow = true;
+  rightLegGroup.add(rightLegMesh);
+  const rightBoot = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.25, 0.5), matBrown());
+  rightBoot.position.set(0, -0.85, 0.05);
+  rightLegGroup.add(rightBoot);
+  group.add(rightLegGroup);
 
   // Level 2+ pauldrons & waist guard
   if (level >= 2) {
@@ -338,10 +350,19 @@ export function buildCharacter(options: CharacterBuildOptions): THREE.Group {
     });
   }
 
-  // Store arm refs for animation
+  // Store refs for animation
   group.userData.rightArm = rightArm;
   group.userData.leftArm = leftArm;
+  group.userData.leftLeg = leftLegGroup;
+  group.userData.rightLeg = rightLegGroup;
+  group.userData.headGroup = headGroup;
+  group.userData.torso = torso;
   group.userData.team = team;
+  group.userData.moveSpeed = 0;
+  group.userData.hitReactTimer = 0;
+  group.userData.hitFlashTimer = 0;
+  group.userData.hitReactDirection = new THREE.Vector3();
+  group.userData.animTimeOffset = Math.random() * Math.PI * 2;
 
   return group;
 }

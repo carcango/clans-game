@@ -1,10 +1,9 @@
 import React from 'react';
-import { HUDState, CombatLogEntry } from '../../../types/game';
+import { HUDState } from '../../../types/game';
 import HealthBar from './HealthBar';
 import ArmyStatus from './ArmyStatus';
 import Minimap from './Minimap';
 import WaveInfo from './WaveInfo';
-import CombatLog from './CombatLog';
 import Crosshair from './Crosshair';
 import DamageOverlay from './DamageOverlay';
 import WaveBanner from './WaveBanner';
@@ -13,15 +12,14 @@ import AbilityCooldown from './AbilityCooldown';
 
 interface HUDProps {
   hudState: HUDState;
-  combatLog: CombatLogEntry[];
   waveBanner: string | null;
   damageFlash: boolean;
   minimapRef: React.RefObject<HTMLCanvasElement | null>;
   abilityName: string;
 }
 
-const HUD: React.FC<HUDProps> = ({ hudState, combatLog, waveBanner, damageFlash, minimapRef, abilityName }) => (
-  <div className="fixed inset-0 pointer-events-none z-10">
+const HUD: React.FC<HUDProps> = ({ hudState, waveBanner, damageFlash, minimapRef, abilityName }) => (
+  <div className="fixed inset-0 z-10 pointer-events-none">
     <HealthBar
       health={hudState.health}
       maxHealth={hudState.maxHealth}
@@ -31,7 +29,6 @@ const HUD: React.FC<HUDProps> = ({ hudState, combatLog, waveBanner, damageFlash,
     <ArmyStatus allyCount={hudState.allyCount} enemyCount={hudState.enemyCount} />
     <Minimap canvasRef={minimapRef} />
     <WaveInfo wave={hudState.wave} kills={hudState.kills} />
-    <CombatLog entries={combatLog} />
     <Crosshair />
     <DamageOverlay active={damageFlash} />
     <WaveBanner text={waveBanner} />
@@ -42,7 +39,7 @@ const HUD: React.FC<HUDProps> = ({ hudState, combatLog, waveBanner, damageFlash,
       abilityName={abilityName}
     />
     {hudState.isBlocking && (
-      <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[60px] h-[60px] border-2 border-[rgba(100,180,255,0.5)] rounded-full z-[15] opacity-50" />
+      <div className="fixed left-1/2 top-1/2 z-[15] h-[62px] w-[62px] -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[var(--color-primary)] bg-[var(--color-primary)]/10" />
     )}
   </div>
 );

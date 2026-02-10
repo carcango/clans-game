@@ -6,18 +6,17 @@ interface WaveInfoProps {
 }
 
 const WaveInfo: React.FC<WaveInfoProps> = ({ wave, kills }) => (
-  <>
-    <div className="fixed top-[30px] left-[40px] z-[15]" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.9)' }}>
-      <div className="text-[#c8a96e] text-[14px] tracking-[2px]">WAVE</div>
-      <div className="text-[24px] font-bold text-[#f39c12]">{wave}</div>
+  <div className="fixed left-1/2 top-4 z-[15] flex -translate-x-1/2 items-center gap-6 rounded-[var(--radius-2xl)] border-2 border-[var(--color-hud-border)] bg-[var(--color-hud-bg)] px-4 py-2 shadow-[var(--shadow-hud)] backdrop-blur-md">
+    <div className="text-center">
+      <div className="text-[11px] uppercase tracking-wide text-[var(--color-text-muted)]">Wave</div>
+      <div className="font-display text-2xl font-semibold text-[var(--color-primary)]">{wave}</div>
     </div>
-    <div className="fixed top-[30px] right-[40px] z-[15]" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.9)' }}>
-      <div className="text-[#c8a96e] text-[14px] tracking-[2px]">KILLS</div>
-      <div className="text-[36px] font-black text-[#e74c3c]" style={{ textShadow: '0 0 20px rgba(231,76,60,0.5)' }}>
-        {kills}
-      </div>
+    <div className="h-8 w-px bg-[var(--color-border)]" />
+    <div className="text-center">
+      <div className="text-[11px] uppercase tracking-wide text-[var(--color-text-muted)]">Kills</div>
+      <div className="text-2xl font-semibold text-[var(--color-text)]">{kills}</div>
     </div>
-  </>
+  </div>
 );
 
 export default WaveInfo;

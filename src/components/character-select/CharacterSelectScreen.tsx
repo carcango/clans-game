@@ -4,6 +4,11 @@ import { HERO_CLASSES } from '../../constants/classes';
 import VoxelPreview from './VoxelPreview';
 import ClassGrid from './ClassGrid';
 import HeroStatsPanel from './HeroStatsPanel';
+import { Badge } from '../ui/badge';
+import { Button } from '../ui/button';
+import { Card, CardContent } from '../ui/card';
+import ScreenShell from '../ui/screen-shell';
+import SectionHeader from '../ui/section-header';
 
 interface CharacterSelectScreenProps {
   onStartBattle: (heroClass: HeroClass) => void;
@@ -22,49 +27,39 @@ const CharacterSelectScreen: React.FC<CharacterSelectScreenProps> = ({ onStartBa
   }, [currentClass.level]);
 
   return (
-    <div className="relative w-full h-screen bg-slate-950 selection:bg-red-500/30">
-      {/* 3D Preview */}
+    <ScreenShell contentClassName="p-0">
       <VoxelPreview heroClass={currentClass} />
 
-      {/* Overlay UI */}
-      <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-6 sm:p-10 z-10">
-        {/* Top Header */}
-        <div className="flex flex-col items-center sm:items-start text-white animate-fade-in">
-          <h1 className="text-4xl sm:text-6xl font-black tracking-tighter uppercase font-[var(--font-medieval)]">
-            {currentClass.name}
-          </h1>
-          <div className="h-1 w-24 bg-red-500 mt-2 mb-4" />
-        </div>
+      <div className="pointer-events-none absolute inset-0 z-10 flex flex-col justify-between p-4 sm:p-6 lg:p-8">
+        <SectionHeader
+          title={currentClass.name}
+          subtitle="Choose class and level before entering the arena."
+          eyebrow="Hero Arena"
+          action={<Badge variant="secondary">Hero Select</Badge>}
+        />
 
-        {/* Bottom Controls */}
-        <div className="flex flex-col sm:flex-row items-end justify-between gap-6 pointer-events-auto">
-          <div className="flex flex-col gap-4">
-            <ClassGrid
-              currentClass={currentClass}
-              onClassSelect={handleClassSelect}
-              onLevelUp={handleLevelUp}
-            />
+        <div className="pointer-events-auto grid items-end gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+          <Card className="animate-bounce-in-up stagger-1">
+            <CardContent className="space-y-4 p-5 sm:p-6">
+              <ClassGrid currentClass={currentClass} onClassSelect={handleClassSelect} onLevelUp={handleLevelUp} />
 
-            <button
-              onClick={() => onStartBattle(currentClass)}
-              className="px-8 py-4 bg-gradient-to-r from-red-600 to-red-800 rounded-xl font-black text-white text-lg shadow-2xl hover:from-red-500 hover:to-red-700 transition-all transform hover:scale-105 active:scale-95 tracking-wider uppercase"
-            >
-              Enter Battle
-            </button>
+              <div className="flex flex-col gap-3 border-t border-[var(--color-border)] pt-4 sm:flex-row sm:items-center sm:justify-between">
+                <Button onClick={() => onStartBattle(currentClass)} size="xl" className="sm:min-w-[200px]">
+                  Enter Battle
+                </Button>
+                <p className="text-xs text-[var(--color-text-muted)]">
+                  WASD Move · Mouse Look · Left Click Attack · Right Click Block · Q Ability
+                </p>
+              </div>
+            </CardContent>
+          </Card>
 
-            <div className="text-slate-500 text-[10px] uppercase tracking-widest">
-              WASD Move | Mouse Look | Left Click Attack | Right Click Block | Q Ability
-            </div>
+          <div className="animate-bounce-in-up stagger-2">
+            <HeroStatsPanel heroClass={currentClass} />
           </div>
-
-          <HeroStatsPanel heroClass={currentClass} />
         </div>
       </div>
-
-      {/* Decorative gradients */}
-      <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-blue-600/10 blur-[150px] rounded-full -translate-y-1/2 translate-x-1/2 pointer-events-none" />
-      <div className="absolute bottom-0 left-0 w-[400px] h-[400px] bg-red-600/5 blur-[120px] rounded-full translate-y-1/2 -translate-x-1/2 pointer-events-none" />
-    </div>
+    </ScreenShell>
   );
 };
 

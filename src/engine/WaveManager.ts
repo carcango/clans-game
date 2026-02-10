@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { GameState, UnitData } from '../types/game';
+import { GameState, UnitData, ToastType } from '../types/game';
 import { HeroClass } from '../types/hero';
 import { buildCharacter, createHealthBar } from './VoxelCharacterBuilder';
 import { HERO_CLASSES } from '../constants/classes';
@@ -53,7 +53,7 @@ export class WaveManager {
     enemies: THREE.Group[],
     allies: THREE.Group[],
     showWaveBanner: (text: string) => void,
-    addCombatLog: (text: string) => void
+    addCombatLog: (text: string, type?: ToastType) => void
   ) {
     // Check wave complete
     const aliveEnemies = enemies.filter((e) => (e.userData as UnitData).health > 0).length;
@@ -61,10 +61,10 @@ export class WaveManager {
       state.waveTransition = true;
       state.waveTransitionTimer = WAVE_TRANSITION_DELAY;
       state.wave++;
-      state.enemiesPerWave = Math.min(MAX_ENEMIES_PER_WAVE, BASE_ENEMIES_PER_WAVE + state.wave * 2);
+      state.enemiesPerWave = Math.min(MAX_ENEMIES_PER_WAVE, BASE_ENEMIES_PER_WAVE + state.wave * 3);
       state.alliesPerWave = Math.min(MAX_ALLIES_PER_WAVE, BASE_ALLIES_PER_WAVE - 2 + state.wave);
       showWaveBanner(`Wave ${state.wave} — Reinforcements!`);
-      addCombatLog(`Wave ${state.wave} incoming!`);
+      addCombatLog(`Wave ${state.wave} incoming!`, 'success');
     }
 
     // Spawn new wave after delay
@@ -115,11 +115,11 @@ export class WaveManager {
     data.damageMax = classStats.attackMax;
     data.health = 40 + state.wave * 10;
     data.maxHealth = data.health;
-    data.speed = classStats.speed * (0.45 + Math.random() * 0.15) + state.wave * 0.15;
+    data.speed = classStats.speed * (0.55 + Math.random() * 0.15) + state.wave * 0.2;
     data.attackTimer = Math.random();
     data.attackCooldown = classStats.attackType === 'ranged'
-      ? 1.8 + Math.random() * 0.8
-      : 1.2 + Math.random();
+      ? 1.2 + Math.random() * 0.6
+      : 0.8 + Math.random() * 0.6;
     data.isAttacking = false;
     data.attackTime = 0;
     data.stunTimer = 0;
@@ -149,11 +149,11 @@ export class WaveManager {
     data.damageMax = classStats.attackMax;
     data.health = 50 + state.wave * 8;
     data.maxHealth = data.health;
-    data.speed = classStats.speed * (0.45 + Math.random() * 0.15) + state.wave * 0.15;
+    data.speed = classStats.speed * (0.55 + Math.random() * 0.15) + state.wave * 0.2;
     data.attackTimer = Math.random();
     data.attackCooldown = classStats.attackType === 'ranged'
-      ? 1.8 + Math.random() * 0.8
-      : 1.0 + Math.random() * 0.8;
+      ? 1.2 + Math.random() * 0.5
+      : 0.7 + Math.random() * 0.5;
     data.isAttacking = false;
     data.attackTime = 0;
     data.stunTimer = 0;

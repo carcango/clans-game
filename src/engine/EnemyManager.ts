@@ -3,10 +3,16 @@ import { UnitData } from '../types/game';
 import { CombatSystem } from './CombatSystem';
 import { updateHealthBar } from './VoxelCharacterBuilder';
 import {
+  updateIdleAnimation, updateLocomotionAnimation,
+  updateMeleeAttackAnimation, updateRangedAttackAnimation,
+  updateHitReaction, updateHitFlash, resetAttackPose,
+} from './UnitAnimator';
+import {
   TERRAIN_HALF,
   MELEE_ENGAGE_DIST, MELEE_HIT_DIST,
   RANGED_MIN_DIST, AI_PROJECTILE_SPEED, UNIT_AVOIDANCE_DIST,
 } from '../constants/game';
+import { ParticleSystem } from './ParticleSystem';
 
 interface AIProjectile {
   mesh: THREE.Mesh;
@@ -14,6 +20,8 @@ interface AIProjectile {
   life: number;
   damageMin: number;
   damageMax: number;
+  frameCount: number;
+  color: number;
 }
 
 const SHIELD_CLASSES = new Set(['warrior', 'paladin']);
@@ -21,11 +29,14 @@ const SHIELD_CLASSES = new Set(['warrior', 'paladin']);
 export class EnemyManager {
   private scene: THREE.Scene;
   private combat: CombatSystem;
+  private particles: ParticleSystem | null = null;
   private projectiles: AIProjectile[] = [];
+  private time = 0;
 
-  constructor(scene: THREE.Scene, combat: CombatSystem) {
+  constructor(scene: THREE.Scene, combat: CombatSystem, particles?: ParticleSystem) {
     this.scene = scene;
     this.combat = combat;
+    this.particles = particles ?? null;
   }
 
   update(
@@ -38,6 +49,7 @@ export class EnemyManager {
     onPlayerHit: (dmg: number) => void,
     onAllyKill: (ally: THREE.Group) => void
   ) {
+    this.time += dt;
     const aliveAllies = allies.filter((a) => (a.userData as UnitData).health > 0);
 
     for (const enemy of enemies) {
@@ -46,6 +58,10 @@ export class EnemyManager {
 
       data.stunTimer -= dt;
       if (data.stunTimer > 0) continue;
+
+      // Hit reaction & flash
+      updateHitReaction(enemy, dt);
+      updateHitFlash(enemy, dt);
 
       // Find closest target
       let closestTarget = player;
@@ -71,17 +87,18 @@ export class EnemyManager {
       enemy.rotation.y += diff * 5 * dt;
 
       const isRanged = data.attackType === 'ranged';
+      let currentSpeed = 0;
 
       if (isRanged) {
-        // Ranged behavior: stay at 6-15 range, fire projectiles
+        // Ranged behavior: stay at 6-12 range, fire projectiles
         if (dist < RANGED_MIN_DIST) {
-          // Too close - back away
           enemy.position.x -= dirToTarget.x * data.speed * 0.7 * dt;
           enemy.position.z -= dirToTarget.z * data.speed * 0.7 * dt;
-        } else if (dist > 15) {
-          // Too far - close in
+          currentSpeed = data.speed * 0.7;
+        } else if (dist > 12) {
           enemy.position.x += dirToTarget.x * data.speed * dt;
           enemy.position.z += dirToTarget.z * data.speed * dt;
+          currentSpeed = data.speed;
         } else {
           // In range - strafe
           data.stateTimer = (data.stateTimer ?? 0) - dt;
@@ -92,29 +109,25 @@ export class EnemyManager {
           const strafe = new THREE.Vector3(-dirToTarget.z, 0, dirToTarget.x).multiplyScalar(data.strafeDir ?? 1);
           enemy.position.x += strafe.x * data.speed * 0.5 * dt;
           enemy.position.z += strafe.z * data.speed * 0.5 * dt;
+          currentSpeed = data.speed * 0.5;
         }
 
         // Ranged attack
         data.attackTimer -= dt;
-        if (data.attackTimer <= 0 && !data.isAttacking && dist < 15) {
+        if (data.attackTimer <= 0 && !data.isAttacking && dist < 12) {
           data.isAttacking = true;
           data.attackTime = 0;
           data.attackTimer = data.attackCooldown;
           data.hitThisSwing = false;
         }
 
-        // Ranged attack animation (slower windup)
+        // Ranged attack animation
         if (data.isAttacking) {
           data.attackTime += dt;
           const progress = data.attackTime / 0.5;
 
-          if (progress < 0.45) {
-            data.rightArm.rotation.x = -1.5 * (progress / 0.45);
-          } else {
-            data.rightArm.rotation.x = -1.5 + 1.5 * ((progress - 0.45) / 0.55);
-          }
+          updateRangedAttackAnimation(enemy, progress);
 
-          // Fire projectile at progress 0.45-0.55
           if (progress > 0.45 && progress < 0.55 && !data.hitThisSwing) {
             data.hitThisSwing = true;
             this.fireAIProjectile(enemy, closestTarget, data);
@@ -122,7 +135,7 @@ export class EnemyManager {
 
           if (progress >= 1) {
             data.isAttacking = false;
-            data.rightArm.rotation.x = 0;
+            resetAttackPose(enemy);
           }
         }
       } else {
@@ -135,18 +148,21 @@ export class EnemyManager {
             data.attackTimer = data.attackCooldown;
             data.hitThisSwing = false;
           }
-        } else if (dist < 6) {
+        } else if (dist < 8) {
+          // Wider strafe zone but more forward pressure
           data.stateTimer = (data.stateTimer ?? 0) - dt;
           if (data.stateTimer! <= 0) {
             data.strafeDir = (data.strafeDir ?? 1) * -1;
             data.stateTimer = 1 + Math.random() * 1.5;
           }
           const strafe = new THREE.Vector3(-dirToTarget.z, 0, dirToTarget.x).multiplyScalar(data.strafeDir ?? 1);
-          enemy.position.x += (strafe.x * 0.4 + dirToTarget.x * 0.6) * data.speed * dt;
-          enemy.position.z += (strafe.z * 0.4 + dirToTarget.z * 0.6) * data.speed * dt;
+          enemy.position.x += (strafe.x * 0.3 + dirToTarget.x * 0.7) * data.speed * dt;
+          enemy.position.z += (strafe.z * 0.3 + dirToTarget.z * 0.7) * data.speed * dt;
+          currentSpeed = data.speed;
         } else {
           enemy.position.x += dirToTarget.x * data.speed * dt;
           enemy.position.z += dirToTarget.z * data.speed * dt;
+          currentSpeed = data.speed;
         }
 
         // Melee attack animation
@@ -154,13 +170,17 @@ export class EnemyManager {
           data.attackTime += dt;
           const progress = data.attackTime / 0.4;
 
-          if (progress < 0.4) {
-            data.rightArm.rotation.x = -2.0 * (progress / 0.4);
-          } else {
-            data.rightArm.rotation.x = -2.0 + 3.0 * ((progress - 0.4) / 0.6);
+          updateMeleeAttackAnimation(enemy, progress);
+
+          // Slash trail
+          if (progress > 0.24 && progress < 0.28 && this.particles) {
+            const fwd = new THREE.Vector3(Math.sin(enemy.rotation.y), 0, Math.cos(enemy.rotation.y));
+            const slashPos = enemy.position.clone().add(fwd.multiplyScalar(1.5));
+            slashPos.y += 2.0;
+            this.particles.createSlashTrail(slashPos, fwd, 0xcc4444);
           }
 
-          if (progress > 0.4 && progress < 0.6 && dist < MELEE_HIT_DIST && !data.hitThisSwing) {
+          if (progress > 0.25 && progress < 0.5 && dist < MELEE_HIT_DIST && !data.hitThisSwing) {
             data.hitThisSwing = true;
             const dmgMin = data.damageMin ?? 8;
             const dmgMax = data.damageMax ?? 16;
@@ -190,16 +210,25 @@ export class EnemyManager {
 
           if (progress >= 1) {
             data.isAttacking = false;
-            data.rightArm.rotation.x = 0;
+            resetAttackPose(enemy);
           }
         }
       }
 
-      // Blocking - only shield classes
+      // Animation: idle or locomotion when not attacking
+      if (!data.isAttacking) {
+        if (currentSpeed > 0.5) {
+          updateLocomotionAnimation(enemy, dt, this.time, currentSpeed);
+        } else {
+          updateIdleAnimation(enemy, dt, this.time);
+        }
+      }
+
+      // Blocking - only shield classes, reduced chance
       const canBlock = SHIELD_CLASSES.has(data.classId ?? '');
       if (canBlock) {
         data.blockTimer -= dt;
-        if (dist < 4 && Math.random() < 0.015) {
+        if (dist < 4 && Math.random() < 0.008) {
           data.isBlocking = true;
           data.blockTimer = 0.5 + Math.random() * 0.5;
         }
@@ -254,6 +283,8 @@ export class EnemyManager {
       life: 2.0,
       damageMin: data.damageMin ?? 8,
       damageMax: data.damageMax ?? 16,
+      frameCount: 0,
+      color,
     });
   }
 
@@ -270,10 +301,16 @@ export class EnemyManager {
       const proj = this.projectiles[i];
       proj.mesh.position.add(proj.velocity.clone().multiplyScalar(dt));
       proj.life -= dt;
+      proj.frameCount++;
+
+      // Projectile trail
+      if (proj.frameCount % 3 === 0 && this.particles) {
+        this.particles.createTrailParticle(proj.mesh.position, proj.color);
+      }
 
       let hit = false;
 
-      // Check hit against player (XZ distance only - projectiles fly at y=2)
+      // Check hit against player
       const pDx = proj.mesh.position.x - player.position.x;
       const pDz = proj.mesh.position.z - player.position.z;
       const pDist = Math.sqrt(pDx * pDx + pDz * pDz);

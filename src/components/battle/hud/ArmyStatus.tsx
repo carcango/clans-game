@@ -6,25 +6,21 @@ interface ArmyStatusProps {
 }
 
 const ArmyStatus: React.FC<ArmyStatusProps> = ({ allyCount, enemyCount }) => (
-  <div className="fixed bottom-[115px] left-1/2 -translate-x-1/2 flex gap-[30px] items-center z-[15]">
-    <div className="flex flex-col items-center gap-0.5">
-      <div className="text-[10px] tracking-[3px] uppercase text-[#5b9bd5]" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>
-        Your Army
+  <div className="fixed bottom-[124px] left-1/2 z-[15] flex -translate-x-1/2 items-center gap-4 rounded-[var(--radius-full)] border-2 border-[var(--color-hud-border)] bg-[var(--color-hud-bg)] px-4 py-2 text-sm shadow-[var(--shadow-hud)] backdrop-blur-md">
+    <div className="text-center">
+      <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-[var(--color-text-muted)]">
+        <span className="h-2 w-2 rounded-full bg-[var(--color-success)]" />
+        Allies
       </div>
-      <div className="text-[28px] font-black text-[#5b9bd5]" style={{ textShadow: '0 0 15px #5b9bd5' }}>
-        {allyCount}
-      </div>
+      <div className="text-xl font-semibold text-[var(--color-success)]">{allyCount}</div>
     </div>
-    <div className="text-[#c8a96e] text-[14px] tracking-[4px]" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.8)' }}>
-      VS
-    </div>
-    <div className="flex flex-col items-center gap-0.5">
-      <div className="text-[10px] tracking-[3px] uppercase text-[#e74c3c]" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.8)' }}>
-        Enemy Army
+    <div className="text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">vs</div>
+    <div className="text-center">
+      <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-[var(--color-text-muted)]">
+        <span className="h-2 w-2 rounded-full bg-[var(--color-destructive)]" />
+        Enemies
       </div>
-      <div className="text-[28px] font-black text-[#e74c3c]" style={{ textShadow: '0 0 15px #e74c3c' }}>
-        {enemyCount}
-      </div>
+      <div className="text-xl font-semibold text-[var(--color-destructive)]">{enemyCount}</div>
     </div>
   </div>
 );

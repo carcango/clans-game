@@ -2,12 +2,19 @@ import * as THREE from 'three';
 import { UnitData } from '../types/game';
 import { ParticleSystem } from './ParticleSystem';
 import { updateHealthBar } from './VoxelCharacterBuilder';
+import { triggerHitReaction } from './UnitAnimator';
+import { DamageNumberSystem } from './DamageNumberSystem';
 
 export class CombatSystem {
   private particles: ParticleSystem;
+  private damageNumbers: DamageNumberSystem | null = null;
 
   constructor(particles: ParticleSystem) {
     this.particles = particles;
+  }
+
+  setDamageNumbers(dns: DamageNumberSystem) {
+    this.damageNumbers = dns;
   }
 
   checkMeleeHit(
@@ -21,9 +28,9 @@ export class CombatSystem {
     damageMultiplier = 1
   ): { hit: boolean; damage: number; target: THREE.Group | null } {
     const fwd = new THREE.Vector3(
-      -Math.sin(attacker.rotation.y),
+      Math.sin(attacker.rotation.y),
       0,
-      -Math.cos(attacker.rotation.y)
+      Math.cos(attacker.rotation.y)
     );
 
     for (const target of targets) {
@@ -49,6 +56,14 @@ export class CombatSystem {
         data.health -= dmg;
         data.stunTimer = 0.5;
         this.particles.createBloodEffect(target.position);
+
+        // Hit reaction
+        const hitDir = toTarget.normalize();
+        triggerHitReaction(target, hitDir);
+
+        // Damage number
+        const isCrit = damageMultiplier > 1;
+        this.damageNumbers?.spawn(target.position, dmg, isCrit);
 
         // Knockback
         const kb = toTarget.normalize().multiplyScalar(0.5);
@@ -100,6 +115,14 @@ export class CombatSystem {
         totalDamage += dmg;
         this.particles.createBloodEffect(target.position);
 
+        // Hit reaction
+        const hitDir = new THREE.Vector3(dx, 0, dz).normalize();
+        triggerHitReaction(target, hitDir);
+
+        // Damage number
+        const isCrit = damageMultiplier > 1;
+        this.damageNumbers?.spawn(target.position, dmg, isCrit);
+
         if (data.health <= 0) {
           onKill?.(target);
         } else {
@@ -143,7 +166,6 @@ export class CombatSystem {
       aData.hitThisSwing = true;
 
       if (tData.team === 'player') {
-        // Check if player is blocking (passed via callback)
         const dmg = 8 + Math.floor(Math.random() * 8) + wave;
         onPlayerHit?.(dmg);
       } else {
@@ -154,6 +176,12 @@ export class CombatSystem {
           tData.health -= dmg;
           tData.stunTimer = 0.3;
           this.particles.createBloodEffect(target.position);
+
+          // Hit reaction
+          const hitDir = new THREE.Vector3().subVectors(target.position, attacker.position).normalize();
+          triggerHitReaction(target, hitDir);
+          this.damageNumbers?.spawn(target.position, dmg);
+
           if (tData.health <= 0) {
             onAllyKill?.(target);
           } else {

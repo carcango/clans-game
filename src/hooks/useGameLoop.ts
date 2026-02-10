@@ -1,6 +1,6 @@
-import { useRef, useEffect, useState, useCallback } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import { GameEngine } from '../engine/GameEngine';
-import { HUDState, CombatLogEntry } from '../types/game';
+import { HUDState } from '../types/game';
 import { HUD_SYNC_INTERVAL } from '../constants/game';
 
 const DEFAULT_HUD: HUDState = {
@@ -14,7 +14,6 @@ const DEFAULT_HUD: HUDState = {
 
 export function useGameLoop(engine: GameEngine | null) {
   const [hudState, setHudState] = useState<HUDState>(DEFAULT_HUD);
-  const [combatLog, setCombatLog] = useState<CombatLogEntry[]>([]);
   const [waveBanner, setWaveBanner] = useState<string | null>(null);
   const [damageFlash, setDamageFlash] = useState(false);
   const [gameOver, setGameOver] = useState(false);
@@ -42,7 +41,6 @@ export function useGameLoop(engine: GameEngine | null) {
       if (lastSyncRef.current >= HUD_SYNC_INTERVAL) {
         lastSyncRef.current = 0;
         setHudState(engine.getHUDState());
-        setCombatLog([...engine.getCombatLog()]);
         setWaveBanner(engine.getWaveBanner());
         setDamageFlash(engine.getDamageFlash());
         if (engine.isGameOver()) {
@@ -60,5 +58,5 @@ export function useGameLoop(engine: GameEngine | null) {
     };
   }, [engine]);
 
-  return { hudState, combatLog, waveBanner, damageFlash, gameOver };
+  return { hudState, waveBanner, damageFlash, gameOver };
 }

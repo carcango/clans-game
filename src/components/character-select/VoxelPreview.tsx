@@ -21,7 +21,7 @@ const VoxelPreview: React.FC<VoxelPreviewProps> = ({ heroClass }) => {
     if (!containerRef.current) return;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0f172a);
+    scene.background = new THREE.Color(0x1a1828);
     sceneRef.current = scene;
 
     const camera = new THREE.PerspectiveCamera(
@@ -43,20 +43,24 @@ const VoxelPreview: React.FC<VoxelPreviewProps> = ({ heroClass }) => {
     rendererRef.current = renderer;
 
     scene.add(new THREE.AmbientLight(0xffffff, 0.4));
-    const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
+    const dirLight = new THREE.DirectionalLight(0xfff2dd, 1.1);
     dirLight.position.set(5, 15, 10);
     dirLight.castShadow = true;
     scene.add(dirLight);
 
+    const rimLight = new THREE.DirectionalLight(0x6b4fa0, 0.4);
+    rimLight.position.set(-7, 8, -6);
+    scene.add(rimLight);
+
     const ground = new THREE.Mesh(
       new THREE.CircleGeometry(8, 64),
-      new THREE.MeshPhongMaterial({ color: 0x1e293b, transparent: true, opacity: 0.8 })
+      new THREE.MeshPhongMaterial({ color: 0x2a2440, transparent: true, opacity: 0.85 })
     );
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
     scene.add(ground);
 
-    const grid = new THREE.GridHelper(16, 16, 0x334155, 0x1e293b);
+    const grid = new THREE.GridHelper(16, 16, 0x3d3555, 0x2a2440);
     grid.position.y = 0.01;
     scene.add(grid);
 
