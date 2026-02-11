@@ -83,6 +83,15 @@ export class GameEngine {
       abilityActive: false,
       backstabReady: false,
       backstabTimer: 0,
+      stealthTimer: 0,
+      ability2Cooldown: 0,
+      dashActive: false,
+      dashTimer: 0,
+      dashDirX: 0,
+      dashDirZ: 0,
+      dashSpeed: 0,
+      dashInvulnerable: false,
+      isLeaping: false,
     };
 
     buildTerrain(this.ctx.scene);
@@ -166,6 +175,18 @@ export class GameEngine {
         }
       );
     }
+    if (this.input.keys['KeyE']) {
+      this.input.keys['KeyE'] = false;
+      this.abilitySystem.activateAbility2(
+        this.heroClass.id,
+        this.stats,
+        this.state,
+        this.player,
+        this.enemies,
+        this.allies,
+        (text, type) => this.addCombatLog(text, type)
+      );
+    }
 
     this.playerController.update(dt, this.enemies);
     this.allyManager.update(
@@ -177,7 +198,8 @@ export class GameEngine {
       dt, this.enemies, this.allies, this.player, this.state.wave,
       this.state.isBlocking,
       (dmg) => this.handlePlayerDamage(dmg),
-      (ally) => this.handleAllyKill(ally)
+      (ally) => this.handleAllyKill(ally),
+      this.state.stealthTimer > 0
     );
     this.waveManager.update(
       dt, this.state, this.player, this.enemies, this.allies,
@@ -185,7 +207,7 @@ export class GameEngine {
       (text, type) => this.addCombatLog(text, type)
     );
     this.abilitySystem.update(
-      dt, this.state, this.enemies,
+      dt, this.state, this.player, this.enemies,
       (enemy) => this.handleEnemyKillByPlayer(enemy),
       (text, type) => this.addCombatLog(text, type)
     );
@@ -223,6 +245,8 @@ export class GameEngine {
       isAttacking: this.state.isAttacking,
       abilityCooldown: this.state.abilityCooldown,
       abilityMaxCooldown: this.stats.abilityCooldownMax,
+      ability2Cooldown: this.state.ability2Cooldown,
+      ability2MaxCooldown: this.stats.ability2CooldownMax,
     };
   }
 
@@ -270,6 +294,7 @@ export class GameEngine {
   }
 
   private handlePlayerDamage(dmg: number) {
+    if (this.state.dashInvulnerable) return;
     if (dmg === 0 || this.state.isBlocking) {
       this.particleSystem.createBlockSparks(this.player.position);
       this.state.playerStamina -= 8;

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ArmyUnit } from '../../types/army';
+import { getScaledStats } from '../../constants/stats';
 import { ArmyBattleEngine } from '../../engine/ArmyBattleEngine';
 import { useInputManager } from '../../hooks/useInputManager';
 import { useArmyBattleLoop } from '../../hooks/useArmyBattleLoop';
@@ -38,6 +39,7 @@ const CampaignBattleScreen: React.FC<CampaignBattleScreenProps> = ({
   const engineRef = useRef<ArmyBattleEngine | null>(null);
   const [engine, setEngine] = useState<ArmyBattleEngine | null>(null);
   const { inputRef, requestPointerLock } = useInputManager();
+  const stats = getScaledStats(playerClassId, playerLevel);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -103,7 +105,8 @@ const CampaignBattleScreen: React.FC<CampaignBattleScreenProps> = ({
         waveBanner={waveBanner}
         damageFlash={damageFlash}
         minimapRef={minimapRef}
-        abilityName="Class Ability"
+        abilityName={stats.abilityName}
+        ability2Name={stats.ability2Name}
       />
 
       {gameOver && detailedResult && (

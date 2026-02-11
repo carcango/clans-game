@@ -10,7 +10,10 @@ import {
 import {
   TERRAIN_HALF,
   MELEE_ENGAGE_DIST, MELEE_HIT_DIST,
-  RANGED_MIN_DIST, AI_PROJECTILE_SPEED, UNIT_AVOIDANCE_DIST,
+  RANGED_MIN_DIST, RANGED_ENGAGE_MAX_ENEMY,
+  CLASS_PROJECTILE_SPEED, DEFAULT_AI_PROJECTILE_SPEED,
+  PROJECTILE_LIFETIME, UNIT_AVOIDANCE_DIST,
+  MELEE_CHARGE_SPEED_MULT, PROJECTILE_SPREAD_MAX,
 } from '../constants/game';
 import { ParticleSystem } from './ParticleSystem';
 
@@ -47,7 +50,8 @@ export class EnemyManager {
     wave: number,
     isPlayerBlocking: boolean,
     onPlayerHit: (dmg: number) => void,
-    onAllyKill: (ally: THREE.Group) => void
+    onAllyKill: (ally: THREE.Group) => void,
+    isPlayerStealthed = false
   ) {
     this.time += dt;
     const aliveAllies = allies.filter((a) => (a.userData as UnitData).health > 0);
@@ -63,15 +67,20 @@ export class EnemyManager {
       updateHitReaction(enemy, dt);
       updateHitFlash(enemy, dt);
 
-      // Find closest target
-      let closestTarget = player;
-      let closestDist = enemy.position.distanceTo(player.position);
+      // Find closest target — skip player if stealthed
+      let closestTarget: THREE.Group | null = isPlayerStealthed ? null : player;
+      let closestDist = isPlayerStealthed ? Infinity : enemy.position.distanceTo(player.position);
       for (const ally of aliveAllies) {
         const d = enemy.position.distanceTo(ally.position);
         if (d < closestDist) {
           closestDist = d;
           closestTarget = ally;
         }
+      }
+      if (!closestTarget) {
+        // No valid target — idle
+        updateIdleAnimation(enemy, dt, this.time);
+        continue;
       }
 
       const toTarget = new THREE.Vector3().subVectors(closestTarget.position, enemy.position);
@@ -95,7 +104,7 @@ export class EnemyManager {
           enemy.position.x -= dirToTarget.x * data.speed * 0.7 * dt;
           enemy.position.z -= dirToTarget.z * data.speed * 0.7 * dt;
           currentSpeed = data.speed * 0.7;
-        } else if (dist > 12) {
+        } else if (dist > RANGED_ENGAGE_MAX_ENEMY) {
           enemy.position.x += dirToTarget.x * data.speed * dt;
           enemy.position.z += dirToTarget.z * data.speed * dt;
           currentSpeed = data.speed;
@@ -114,7 +123,7 @@ export class EnemyManager {
 
         // Ranged attack
         data.attackTimer -= dt;
-        if (data.attackTimer <= 0 && !data.isAttacking && dist < 12) {
+        if (data.attackTimer <= 0 && !data.isAttacking && dist < RANGED_ENGAGE_MAX_ENEMY) {
           data.isAttacking = true;
           data.attackTime = 0;
           data.attackTimer = data.attackCooldown;
@@ -160,9 +169,10 @@ export class EnemyManager {
           enemy.position.z += (strafe.z * 0.3 + dirToTarget.z * 0.7) * data.speed * dt;
           currentSpeed = data.speed;
         } else {
-          enemy.position.x += dirToTarget.x * data.speed * dt;
-          enemy.position.z += dirToTarget.z * data.speed * dt;
-          currentSpeed = data.speed;
+          const chargeSpeed = data.speed * MELEE_CHARGE_SPEED_MULT;
+          enemy.position.x += dirToTarget.x * chargeSpeed * dt;
+          enemy.position.z += dirToTarget.z * chargeSpeed * dt;
+          currentSpeed = chargeSpeed;
         }
 
         // Melee attack animation
@@ -255,13 +265,19 @@ export class EnemyManager {
       enemy.position.y = 0;
     }
 
-    this.updateProjectiles(dt, player, allies, isPlayerBlocking, wave, onPlayerHit, onAllyKill);
+    this.updateProjectiles(dt, player, allies, isPlayerBlocking, wave, onPlayerHit, onAllyKill, isPlayerStealthed);
   }
 
   private fireAIProjectile(attacker: THREE.Group, target: THREE.Group, data: UnitData) {
     const dir = new THREE.Vector3().subVectors(target.position, attacker.position);
     dir.y = 0;
+    const dist = dir.length();
     dir.normalize();
+
+    // Accuracy falloff: more spread at longer range
+    const spreadFactor = Math.min(1, dist / RANGED_ENGAGE_MAX_ENEMY);
+    const spread = (Math.random() - 0.5) * 2 * PROJECTILE_SPREAD_MAX * spreadFactor;
+    dir.applyAxisAngle(new THREE.Vector3(0, 1, 0), spread);
 
     let color = 0xcccccc;
     const classId = data.classId ?? '';
@@ -277,10 +293,11 @@ export class EnemyManager {
     mesh.position.y += 2.0;
     this.scene.add(mesh);
 
+    const speed = CLASS_PROJECTILE_SPEED[classId] ?? DEFAULT_AI_PROJECTILE_SPEED;
     this.projectiles.push({
       mesh,
-      velocity: dir.multiplyScalar(AI_PROJECTILE_SPEED),
-      life: 2.0,
+      velocity: dir.multiplyScalar(speed),
+      life: PROJECTILE_LIFETIME,
       damageMin: data.damageMin ?? 8,
       damageMax: data.damageMax ?? 16,
       frameCount: 0,
@@ -295,7 +312,8 @@ export class EnemyManager {
     isPlayerBlocking: boolean,
     wave: number,
     onPlayerHit: (dmg: number) => void,
-    onAllyKill: (ally: THREE.Group) => void
+    onAllyKill: (ally: THREE.Group) => void,
+    isPlayerStealthed: boolean
   ) {
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const proj = this.projectiles[i];
@@ -310,18 +328,20 @@ export class EnemyManager {
 
       let hit = false;
 
-      // Check hit against player
-      const pDx = proj.mesh.position.x - player.position.x;
-      const pDz = proj.mesh.position.z - player.position.z;
-      const pDist = Math.sqrt(pDx * pDx + pDz * pDz);
-      if (pDist < 2.0) {
-        if (isPlayerBlocking) {
-          onPlayerHit(0);
-        } else {
-          const dmg = proj.damageMin + Math.floor(Math.random() * (proj.damageMax - proj.damageMin)) + wave;
-          onPlayerHit(dmg);
+      // Check hit against player — skip if stealthed
+      if (!isPlayerStealthed) {
+        const pDx = proj.mesh.position.x - player.position.x;
+        const pDz = proj.mesh.position.z - player.position.z;
+        const pDist = Math.sqrt(pDx * pDx + pDz * pDz);
+        if (pDist < 2.0) {
+          if (isPlayerBlocking) {
+            onPlayerHit(0);
+          } else {
+            const dmg = proj.damageMin + Math.floor(Math.random() * (proj.damageMax - proj.damageMin)) + wave;
+            onPlayerHit(dmg);
+          }
+          hit = true;
         }
-        hit = true;
       }
 
       // Check hit against allies

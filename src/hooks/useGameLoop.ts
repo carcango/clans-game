@@ -10,6 +10,7 @@ const DEFAULT_HUD: HUDState = {
   allyCount: 0, enemyCount: 0,
   isBlocking: false, isAttacking: false,
   abilityCooldown: 0, abilityMaxCooldown: 10,
+  ability2Cooldown: 0, ability2MaxCooldown: 10,
 };
 
 export function useGameLoop(engine: GameEngine | null) {

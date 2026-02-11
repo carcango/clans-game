@@ -28,6 +28,15 @@ export interface GameState {
   abilityActive: boolean;
   backstabReady: boolean;
   backstabTimer: number;
+  stealthTimer: number;
+  ability2Cooldown: number;
+  dashActive: boolean;
+  dashTimer: number;
+  dashDirX: number;
+  dashDirZ: number;
+  dashSpeed: number;
+  dashInvulnerable: boolean;
+  isLeaping: boolean;
 }
 
 export interface UnitData {
@@ -86,6 +95,8 @@ export interface HUDState {
   isAttacking: boolean;
   abilityCooldown: number;
   abilityMaxCooldown: number;
+  ability2Cooldown: number;
+  ability2MaxCooldown: number;
 }
 
 export type ToastType = 'success' | 'error' | 'info';

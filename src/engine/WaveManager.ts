@@ -115,7 +115,7 @@ export class WaveManager {
     data.damageMax = classStats.attackMax;
     data.health = 40 + state.wave * 10;
     data.maxHealth = data.health;
-    data.speed = classStats.speed * (0.55 + Math.random() * 0.15) + state.wave * 0.2;
+    data.speed = classStats.speed * (0.70 + Math.random() * 0.15) + state.wave * 0.15;
     data.attackTimer = Math.random();
     data.attackCooldown = classStats.attackType === 'ranged'
       ? 1.2 + Math.random() * 0.6
@@ -149,7 +149,7 @@ export class WaveManager {
     data.damageMax = classStats.attackMax;
     data.health = 50 + state.wave * 8;
     data.maxHealth = data.health;
-    data.speed = classStats.speed * (0.55 + Math.random() * 0.15) + state.wave * 0.2;
+    data.speed = classStats.speed * (0.70 + Math.random() * 0.15) + state.wave * 0.15;
     data.attackTimer = Math.random();
     data.attackCooldown = classStats.attackType === 'ranged'
       ? 1.2 + Math.random() * 0.5

@@ -16,9 +16,10 @@ interface HUDProps {
   damageFlash: boolean;
   minimapRef: React.RefObject<HTMLCanvasElement | null>;
   abilityName: string;
+  ability2Name: string;
 }
 
-const HUD: React.FC<HUDProps> = ({ hudState, waveBanner, damageFlash, minimapRef, abilityName }) => (
+const HUD: React.FC<HUDProps> = ({ hudState, waveBanner, damageFlash, minimapRef, abilityName, ability2Name }) => (
   <div className="fixed inset-0 z-10 pointer-events-none">
     <HealthBar
       health={hudState.health}
@@ -33,11 +34,19 @@ const HUD: React.FC<HUDProps> = ({ hudState, waveBanner, damageFlash, minimapRef
     <DamageOverlay active={damageFlash} />
     <WaveBanner text={waveBanner} />
     <CommandHint />
-    <AbilityCooldown
-      cooldown={hudState.abilityCooldown}
-      maxCooldown={hudState.abilityMaxCooldown}
-      abilityName={abilityName}
-    />
+    <div className="fixed bottom-[62px] right-4 z-[15] flex gap-2">
+      <AbilityCooldown
+        cooldown={hudState.ability2Cooldown}
+        maxCooldown={hudState.ability2MaxCooldown}
+        abilityName={ability2Name}
+        keyLabel="E"
+      />
+      <AbilityCooldown
+        cooldown={hudState.abilityCooldown}
+        maxCooldown={hudState.abilityMaxCooldown}
+        abilityName={abilityName}
+      />
+    </div>
     {hudState.isBlocking && (
       <div className="fixed left-1/2 top-1/2 z-[15] h-[62px] w-[62px] -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[var(--color-primary)] bg-[var(--color-primary)]/10" />
     )}

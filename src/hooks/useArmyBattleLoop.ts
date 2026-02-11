@@ -9,6 +9,7 @@ const DEFAULT_HUD: ArmyHUDState = {
   enemyCount: 0, totalEnemies: 0,
   isBlocking: false, isAttacking: false,
   abilityCooldown: 0, abilityMaxCooldown: 10,
+  ability2Cooldown: 0, ability2MaxCooldown: 10,
 };
 
 export function useArmyBattleLoop(engine: ArmyBattleEngine | null) {

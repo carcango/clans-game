@@ -31,6 +31,8 @@ export interface ArmyHUDState {
   isAttacking: boolean;
   abilityCooldown: number;
   abilityMaxCooldown: number;
+  ability2Cooldown: number;
+  ability2MaxCooldown: number;
 }
 
 interface ArmyBattleHeroModifiers {
@@ -157,12 +159,21 @@ export class ArmyBattleEngine {
       abilityActive: false,
       backstabReady: false,
       backstabTimer: 0,
+      stealthTimer: 0,
+      ability2Cooldown: 0,
+      dashActive: false,
+      dashTimer: 0,
+      dashDirX: 0,
+      dashDirZ: 0,
+      dashSpeed: 0,
+      dashInvulnerable: false,
+      isLeaping: false,
     };
 
     buildTerrain(this.ctx.scene);
 
     // Spawn player at south side
-    this.player = spawnPlayerUnit(this.ctx.scene, this.playerClassId, this.playerLevel, -30);
+    this.player = spawnPlayerUnit(this.ctx.scene, this.playerClassId, this.playerLevel, -45);
 
     // Spawn allied army (excluding the player unit's slot)
     const allyUnits = this.playerArmy.map((u) => ({ ...u }));
@@ -248,21 +259,38 @@ export class ArmyBattleEngine {
         }
       );
     }
+    if (this.input.keys['KeyE']) {
+      this.input.keys['KeyE'] = false;
+      this.abilitySystem.activateAbility2(
+        this.heroClass.id,
+        this.stats,
+        this.state,
+        this.player,
+        this.enemies,
+        this.allies,
+        (text, type) => this.addCombatLog(text, type)
+      );
+    }
 
     this.playerController.update(dt, this.enemies);
+    // In army mode, always charge when enemies exist — prevents accidental
+    // F-key (adjacent to WASD) from switching allies to passive follow mode
+    const aliveEnemies = this.enemies.some((e) => (e.userData as UnitData).health > 0);
+    const effectiveCommand = aliveEnemies ? 'charge' : this.state.allyCommand;
     this.allyManager.update(
       dt, this.allies, this.enemies, this.player,
-      this.state.allyCommand, 1,
+      effectiveCommand, 1,
       (enemy) => this.handleEnemyKill(enemy)
     );
     this.enemyManager.update(
       dt, this.enemies, this.allies, this.player, 1,
       this.state.isBlocking,
       (dmg) => this.handlePlayerDamage(dmg),
-      (ally) => this.handleAllyKill(ally)
+      (ally) => this.handleAllyKill(ally),
+      this.state.stealthTimer > 0
     );
     this.abilitySystem.update(
-      dt, this.state, this.enemies,
+      dt, this.state, this.player, this.enemies,
       (enemy) => this.handleEnemyKill(enemy),
       (text, type) => this.addCombatLog(text, type)
     );
@@ -316,6 +344,8 @@ export class ArmyBattleEngine {
       isAttacking: this.state.isAttacking,
       abilityCooldown: this.state.abilityCooldown,
       abilityMaxCooldown: this.stats.abilityCooldownMax,
+      ability2Cooldown: this.state.ability2Cooldown,
+      ability2MaxCooldown: this.stats.ability2CooldownMax,
     };
   }
 
@@ -372,6 +402,7 @@ export class ArmyBattleEngine {
   }
 
   private handlePlayerDamage(dmg: number) {
+    if (this.state.dashInvulnerable) return;
     if (dmg === 0 || this.state.isBlocking) {
       this.particleSystem.createBlockSparks(this.player.position);
       this.state.playerStamina -= 8;

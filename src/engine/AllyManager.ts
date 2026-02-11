@@ -10,7 +10,10 @@ import {
 import {
   TERRAIN_HALF,
   MELEE_ENGAGE_DIST, MELEE_HIT_DIST,
-  RANGED_MIN_DIST, AI_PROJECTILE_SPEED, UNIT_AVOIDANCE_DIST,
+  RANGED_MIN_DIST, RANGED_ENGAGE_MAX_ALLY,
+  CLASS_PROJECTILE_SPEED, DEFAULT_AI_PROJECTILE_SPEED,
+  PROJECTILE_LIFETIME, UNIT_AVOIDANCE_DIST,
+  MELEE_CHARGE_SPEED_MULT, PROJECTILE_SPREAD_MAX,
 } from '../constants/game';
 import { ParticleSystem } from './ParticleSystem';
 
@@ -74,7 +77,7 @@ export class AllyManager {
       }
 
       const isRanged = data.attackType === 'ranged';
-      const engageDist = isRanged ? 18 : 12;
+      const engageDist = isRanged ? RANGED_ENGAGE_MAX_ALLY : 12;
 
       // Determine target position
       let targetPos: THREE.Vector3;
@@ -108,7 +111,7 @@ export class AllyManager {
       const dir = toTarget.clone().normalize();
 
       // Face direction
-      if (closestEnemy && closestDist < (isRanged ? 18 : 5)) {
+      if (closestEnemy && closestDist < (isRanged ? RANGED_ENGAGE_MAX_ALLY : 5)) {
         const toE = new THREE.Vector3().subVectors(closestEnemy.position, ally.position);
         toE.y = 0;
         const ta = Math.atan2(toE.x, toE.z);
@@ -138,7 +141,7 @@ export class AllyManager {
             ally.position.x -= eDir.x * data.speed * 0.7 * dt;
             ally.position.z -= eDir.z * data.speed * 0.7 * dt;
             currentSpeed = data.speed * 0.7;
-          } else if (eDist > 18) {
+          } else if (eDist > RANGED_ENGAGE_MAX_ALLY) {
             ally.position.x += eDir.x * data.speed * dt;
             ally.position.z += eDir.z * data.speed * dt;
             currentSpeed = data.speed;
@@ -156,7 +159,7 @@ export class AllyManager {
 
           // Ranged attack
           data.attackTimer -= dt;
-          if (data.attackTimer <= 0 && !data.isAttacking && eDist < 18) {
+          if (data.attackTimer <= 0 && !data.isAttacking && eDist < RANGED_ENGAGE_MAX_ALLY) {
             data.isAttacking = true;
             data.attackTime = 0;
             data.attackTimer = data.attackCooldown;
@@ -196,9 +199,12 @@ export class AllyManager {
             data.hitThisSwing = false;
           }
         } else if (dist > 1.5) {
-          ally.position.x += dir.x * data.speed * dt;
-          ally.position.z += dir.z * data.speed * dt;
-          currentSpeed = data.speed;
+          // Charge boost when closing on enemies
+          const closing = closestEnemy && closestDist > MELEE_ENGAGE_DIST;
+          const moveSpeed = closing ? data.speed * MELEE_CHARGE_SPEED_MULT : data.speed;
+          ally.position.x += dir.x * moveSpeed * dt;
+          ally.position.z += dir.z * moveSpeed * dt;
+          currentSpeed = moveSpeed;
         }
 
         // Melee attack animation
@@ -217,7 +223,7 @@ export class AllyManager {
           }
 
           // Hit check
-          if (progress > 0.25 && progress < 0.55 && closestEnemy && closestDist < MELEE_HIT_DIST + 0.3 && !data.hitThisSwing) {
+          if (progress > 0.25 && progress < 0.55 && closestEnemy && closestDist < MELEE_HIT_DIST && !data.hitThisSwing) {
             data.hitThisSwing = true;
             const eData = closestEnemy.userData as UnitData;
             if (eData.isBlocking && Math.random() < 0.45) {
@@ -229,7 +235,7 @@ export class AllyManager {
               this.combat.checkMeleeHit(
                 ally,
                 [closestEnemy],
-                MELEE_HIT_DIST + 0.3,
+                MELEE_HIT_DIST,
                 dmg,
                 dmg,
                 new Set(),
@@ -297,7 +303,13 @@ export class AllyManager {
   private fireAllyProjectile(attacker: THREE.Group, target: THREE.Group, data: UnitData) {
     const dir = new THREE.Vector3().subVectors(target.position, attacker.position);
     dir.y = 0;
+    const dist = dir.length();
     dir.normalize();
+
+    // Accuracy falloff: more spread at longer range
+    const spreadFactor = Math.min(1, dist / RANGED_ENGAGE_MAX_ALLY);
+    const spread = (Math.random() - 0.5) * 2 * PROJECTILE_SPREAD_MAX * spreadFactor;
+    dir.applyAxisAngle(new THREE.Vector3(0, 1, 0), spread);
 
     let color = 0x6699ff;
     const classId = data.classId ?? '';
@@ -313,10 +325,11 @@ export class AllyManager {
     mesh.position.y += 2.0;
     this.scene.add(mesh);
 
+    const speed = CLASS_PROJECTILE_SPEED[classId] ?? DEFAULT_AI_PROJECTILE_SPEED;
     this.projectiles.push({
       mesh,
-      velocity: dir.multiplyScalar(AI_PROJECTILE_SPEED),
-      life: 2.0,
+      velocity: dir.multiplyScalar(speed),
+      life: PROJECTILE_LIFETIME,
       damageMin: data.damageMin ?? 10,
       damageMax: data.damageMax ?? 20,
       frameCount: 0,

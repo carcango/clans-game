@@ -97,6 +97,7 @@ const BattleScreen: React.FC<BattleScreenProps> = ({ heroClass, onChangeHero }) 
         damageFlash={damageFlash}
         minimapRef={minimapRef}
         abilityName={stats.abilityName}
+        ability2Name={stats.ability2Name}
       />
 
       <GameToaster offset={180} />

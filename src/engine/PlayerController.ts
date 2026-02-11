@@ -3,6 +3,7 @@ import { GameState, InputState, UnitData, ToastType } from '../types/game';
 import { ClassStats } from '../constants/stats';
 import { CombatSystem } from './CombatSystem';
 import { ParticleSystem } from './ParticleSystem';
+import { updateHealthBar } from './VoxelCharacterBuilder';
 import {
   updateIdleAnimation, updateLocomotionAnimation,
   updateMeleeAttackAnimation, updateRangedAttackAnimation,
@@ -12,7 +13,8 @@ import {
   GRAVITY, JUMP_VELOCITY, TERRAIN_HALF,
   ATTACK_DURATION, ATTACK_COOLDOWN, ATTACK_STAMINA_COST,
   SPRINT_STAMINA_COST, STAMINA_REGEN_RATE, BLOCK_STAMINA_DRAIN,
-  CAMERA_SENSITIVITY, PROJECTILE_SPEED,
+  CAMERA_SENSITIVITY,
+  PLAYER_PROJECTILE_SPEED, DEFAULT_PLAYER_PROJECTILE_SPEED, PROJECTILE_LIFETIME,
   CAMERA_MIN_DISTANCE, CAMERA_MAX_DISTANCE, CAMERA_HEIGHT,
   CAMERA_LERP_SPEED, CAMERA_FP_EYE_HEIGHT,
 } from '../constants/game';
@@ -36,11 +38,16 @@ export class PlayerController {
   private scene: THREE.Scene;
   private hitEnemiesThisSwing = new Set<THREE.Group>();
   private projectiles: Projectile[] = [];
+  private leapLanded = false;
   private addCombatLog: (text: string, type?: ToastType) => void;
   private onKillEnemy: (enemy: THREE.Group) => void;
   private onPlayerHit: (dmg: number) => void;
   private time = 0;
   private currentSpeed = 0;
+
+  // Melee range ring
+  private rangeRing: THREE.Mesh | null = null;
+  private rangeRingMat: THREE.MeshBasicMaterial | null = null;
 
   // Camera shake
   private shakeIntensity = 0;
@@ -72,6 +79,22 @@ export class PlayerController {
     this.addCombatLog = addCombatLog;
     this.onKillEnemy = onKillEnemy;
     this.onPlayerHit = onPlayerHit;
+
+    // Create melee range ring (melee classes only)
+    if (stats.attackType === 'melee') {
+      const ringGeo = new THREE.RingGeometry(stats.range - 0.15, stats.range + 0.15, 48);
+      this.rangeRingMat = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.12,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      });
+      this.rangeRing = new THREE.Mesh(ringGeo, this.rangeRingMat);
+      this.rangeRing.rotation.x = -Math.PI / 2;
+      this.rangeRing.position.y = 0.05;
+      player.add(this.rangeRing);
+    }
   }
 
   triggerShake(intensity: number) {
@@ -81,15 +104,115 @@ export class PlayerController {
   update(dt: number, enemies: THREE.Group[]) {
     this.time += dt;
     this.updateMovement(dt);
+    this.checkDashEffects(dt, enemies);
     this.updateCombat(dt, enemies);
     this.updateProjectiles(dt, enemies);
     this.updateAnimations(dt);
     this.updateCamera(dt);
   }
 
+  private checkDashEffects(_dt: number, enemies: THREE.Group[]) {
+    const state = this.state;
+
+    // War Leap landing AoE
+    if (this.leapLanded) {
+      this.leapLanded = false;
+      const slamRadius = 5;
+      const slamDmg = Math.floor((this.stats.attackMin + this.stats.attackMax) * 0.25);
+      let hitCount = 0;
+      for (const enemy of enemies) {
+        const data = enemy.userData as UnitData;
+        if (data.health <= 0) continue;
+        const dist = this.player.position.distanceTo(enemy.position);
+        if (dist < slamRadius) {
+          data.health -= slamDmg;
+          data.stunTimer = Math.max(data.stunTimer, 0.8);
+          this.particles.createBloodEffect(enemy.position);
+          hitCount++;
+          if (data.health <= 0) {
+            this.onKillEnemy(enemy);
+          } else {
+            updateHealthBar(enemy);
+            // push back from center
+            const kb = new THREE.Vector3().subVectors(enemy.position, this.player.position).normalize().multiplyScalar(2);
+            enemy.position.add(kb);
+          }
+        }
+      }
+      this.particles.createLeapSlamEffect(this.player.position, slamRadius);
+      this.triggerShake(0.4);
+      if (hitCount > 0) {
+        this.addCombatLog(`War Leap slam hit ${hitCount} enemies for ${slamDmg}!`, 'info');
+      }
+    }
+
+    // Holy Charge knockback (during active dash for paladin)
+    if (state.dashActive && !state.isLeaping && state.dashInvulnerable && this.classId === 'paladin') {
+      for (const enemy of enemies) {
+        const data = enemy.userData as UnitData;
+        if (data.health <= 0) continue;
+        const dist = this.player.position.distanceTo(enemy.position);
+        if (dist < 3) {
+          const kb = new THREE.Vector3().subVectors(enemy.position, this.player.position).normalize().multiplyScalar(5);
+          enemy.position.add(kb);
+          data.stunTimer = Math.max(data.stunTimer, 0.5);
+          this.particles.createBlockSparks(enemy.position);
+        }
+      }
+      this.particles.createDashTrailEffect(this.player.position, new THREE.Vector3(state.dashDirX, 0, state.dashDirZ));
+    }
+  }
+
   private updateMovement(dt: number) {
     const { keys } = this.input;
     const state = this.state;
+
+    // Dash/leap movement override
+    if (state.dashActive) {
+      // Apply dash horizontal movement
+      this.player.position.x += state.dashDirX * state.dashSpeed * dt;
+      this.player.position.z += state.dashDirZ * state.dashSpeed * dt;
+
+      // Face dash direction
+      this.player.rotation.y = Math.atan2(state.dashDirX, state.dashDirZ);
+      this.currentSpeed = state.dashSpeed;
+
+      // Gravity + vertical physics still apply
+      state.playerVelY += GRAVITY * dt;
+      this.player.position.y += state.playerVelY * dt;
+
+      if (state.isLeaping) {
+        // War Leap — ends when landing
+        if (this.player.position.y <= 0 && state.playerVelY < 0) {
+          this.player.position.y = 0;
+          state.playerVelY = 0;
+          state.onGround = true;
+          state.dashActive = false;
+          state.isLeaping = false;
+          state.dashInvulnerable = false;
+          this.leapLanded = true;
+        }
+      } else {
+        // Ground dash (Holy Charge, Evasive Roll) — timer based
+        state.dashTimer -= dt;
+        // Keep on ground during ground dashes
+        if (this.player.position.y <= 0) {
+          this.player.position.y = 0;
+          state.playerVelY = 0;
+          state.onGround = true;
+        }
+        if (state.dashTimer <= 0) {
+          state.dashActive = false;
+          state.dashInvulnerable = false;
+        }
+      }
+
+      // Bounds
+      this.player.position.x = Math.max(-TERRAIN_HALF, Math.min(TERRAIN_HALF, this.player.position.x));
+      this.player.position.z = Math.max(-TERRAIN_HALF, Math.min(TERRAIN_HALF, this.player.position.z));
+      return;
+    }
+
     const moveDir = new THREE.Vector3();
     const forward = new THREE.Vector3(Math.sin(state.cameraAngleY), 0, Math.cos(state.cameraAngleY));
     const right = new THREE.Vector3(Math.cos(state.cameraAngleY), 0, -Math.sin(state.cameraAngleY));
@@ -193,7 +316,12 @@ export class PlayerController {
           this.triggerShake(0.15);
           if (result.damage > 0 && state.backstabReady) {
             this.addCombatLog(`Backstab! ${result.damage} damage!`, 'success');
+            const fwd = new THREE.Vector3(Math.sin(this.player.rotation.y), 0, Math.cos(this.player.rotation.y));
+            const hitPos = this.player.position.clone().add(fwd.multiplyScalar(2));
+            hitPos.y += 1.5;
+            this.particles.createBackstabHitEffect(hitPos);
             state.backstabReady = false;
+            state.stealthTimer = 0;
           }
         }
       }
@@ -221,6 +349,9 @@ export class PlayerController {
     updateHitReaction(this.player, dt);
     updateHitFlash(this.player, dt);
 
+    // Save physics Y — locomotion animation overwrites position.y with a bounce
+    const physicsY = this.player.position.y;
+
     if (state.isAttacking) {
       const progress = 1 - state.attackTimer / ATTACK_DURATION;
       if (this.stats.attackType === 'melee') {
@@ -232,6 +363,22 @@ export class PlayerController {
       updateLocomotionAnimation(this.player, dt, this.time, this.currentSpeed);
     } else {
       updateIdleAnimation(this.player, dt, this.time);
+    }
+
+    // Restore physics Y when airborne so animation bounce doesn't clobber leap/jump arcs
+    if (!state.onGround) {
+      this.player.position.y = physicsY;
+    }
+
+    // Update melee range ring
+    if (this.rangeRingMat) {
+      if (state.isAttacking) {
+        this.rangeRingMat.color.setHex(0xff8800);
+        this.rangeRingMat.opacity = 0.35;
+      } else {
+        this.rangeRingMat.color.setHex(0xffffff);
+        this.rangeRingMat.opacity = 0.08 + Math.sin(this.time * 2) * 0.05;
+      }
     }
   }
 
@@ -255,10 +402,11 @@ export class PlayerController {
     mesh.position.y += 2.0;
     this.scene.add(mesh);
 
+    const speed = PLAYER_PROJECTILE_SPEED[this.classId] ?? DEFAULT_PLAYER_PROJECTILE_SPEED;
     this.projectiles.push({
       mesh,
-      velocity: fwd.clone().multiplyScalar(PROJECTILE_SPEED),
-      life: 2.0,
+      velocity: fwd.clone().multiplyScalar(speed),
+      life: PROJECTILE_LIFETIME,
       frameCount: 0,
     });
   }
@@ -300,7 +448,11 @@ export class PlayerController {
             dmgMult
           );
           if (result.hit) {
-            if (this.state.backstabReady) this.state.backstabReady = false;
+            if (this.state.backstabReady) {
+              this.particles.createBackstabHitEffect(proj.mesh.position.clone());
+              this.state.backstabReady = false;
+              this.state.stealthTimer = 0;
+            }
             if (this.classId === 'mage') {
               this.particles.createMagicEffect(proj.mesh.position, 0xff4400, 3);
             }
@@ -405,5 +557,13 @@ export class PlayerController {
       (p.mesh.material as THREE.Material).dispose();
     });
     this.projectiles = [];
+
+    if (this.rangeRing) {
+      this.rangeRing.geometry.dispose();
+      this.rangeRingMat!.dispose();
+      this.player.remove(this.rangeRing);
+      this.rangeRing = null;
+      this.rangeRingMat = null;
+    }
   }
 }
