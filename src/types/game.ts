@@ -37,6 +37,7 @@ export interface GameState {
   dashSpeed: number;
   dashInvulnerable: boolean;
   isLeaping: boolean;
+  ability2AnimTimer: number;
 }
 
 export interface UnitData {
@@ -73,6 +74,7 @@ export interface UnitData {
   hitFlashTimer: number;
   hitReactDirection: THREE.Vector3;
   animTimeOffset: number;
+  holyChargeHit?: boolean;
 }
 
 export interface InputState {

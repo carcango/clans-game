@@ -92,6 +92,7 @@ export class GameEngine {
       dashSpeed: 0,
       dashInvulnerable: false,
       isLeaping: false,
+      ability2AnimTimer: 0,
     };
 
     buildTerrain(this.ctx.scene);
@@ -172,7 +173,8 @@ export class GameEngine {
         (ally) => {
           this.ctx.scene.add(ally);
           this.allies.push(ally);
-        }
+        },
+        (enemy) => this.handleEnemyKillByPlayer(enemy)
       );
     }
     if (this.input.keys['KeyE']) {

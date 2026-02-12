@@ -8,6 +8,9 @@ import {
   updateIdleAnimation, updateLocomotionAnimation,
   updateMeleeAttackAnimation, updateRangedAttackAnimation,
   updateHitReaction, updateHitFlash, resetAttackPose,
+  updateWarLeapAnimation, updateHolyChargeAnimation,
+  updateEvasiveRollAnimation, updateShadowStepAnimation,
+  updateBlinkAnimation, updateSoulDrainAnimation,
 } from './UnitAnimator';
 import {
   GRAVITY, JUMP_VELOCITY, TERRAIN_HALF,
@@ -18,9 +21,10 @@ import {
   CAMERA_MIN_DISTANCE, CAMERA_MAX_DISTANCE, CAMERA_HEIGHT,
   CAMERA_LERP_SPEED, CAMERA_FP_EYE_HEIGHT,
 } from '../constants/game';
+import { createProjectileMesh, disposeProjectile, getProjectileTrailColor } from './ProjectileFactory';
 
 interface Projectile {
-  mesh: THREE.Mesh;
+  mesh: THREE.Object3D;
   velocity: THREE.Vector3;
   life: number;
   frameCount: number;
@@ -117,8 +121,8 @@ export class PlayerController {
     // War Leap landing AoE
     if (this.leapLanded) {
       this.leapLanded = false;
-      const slamRadius = 5;
-      const slamDmg = Math.floor((this.stats.attackMin + this.stats.attackMax) * 0.25);
+      const slamRadius = 10;
+      const slamDmg = Math.floor((this.stats.attackMin + this.stats.attackMax) * 0.9);
       let hitCount = 0;
       for (const enemy of enemies) {
         const data = enemy.userData as UnitData;
@@ -126,40 +130,68 @@ export class PlayerController {
         const dist = this.player.position.distanceTo(enemy.position);
         if (dist < slamRadius) {
           data.health -= slamDmg;
-          data.stunTimer = Math.max(data.stunTimer, 0.8);
+          data.stunTimer = Math.max(data.stunTimer, 2.0);
           this.particles.createBloodEffect(enemy.position);
           hitCount++;
           if (data.health <= 0) {
             this.onKillEnemy(enemy);
           } else {
             updateHealthBar(enemy);
-            // push back from center
-            const kb = new THREE.Vector3().subVectors(enemy.position, this.player.position).normalize().multiplyScalar(2);
+            const kb = new THREE.Vector3().subVectors(enemy.position, this.player.position).normalize().multiplyScalar(7);
             enemy.position.add(kb);
           }
         }
       }
       this.particles.createLeapSlamEffect(this.player.position, slamRadius);
-      this.triggerShake(0.4);
+      this.triggerShake(0.8);
       if (hitCount > 0) {
         this.addCombatLog(`War Leap slam hit ${hitCount} enemies for ${slamDmg}!`, 'info');
       }
     }
 
-    // Holy Charge knockback (during active dash for paladin)
+    // War Leap aerial trail
+    if (state.dashActive && state.isLeaping) {
+      this.particles.createTrailParticle(this.player.position, 0xaa6633);
+      this.particles.createTrailParticle(this.player.position, 0x886644);
+    }
+
+    // Holy Charge damage + knockback (during active dash for paladin)
     if (state.dashActive && !state.isLeaping && state.dashInvulnerable && this.classId === 'paladin') {
       for (const enemy of enemies) {
         const data = enemy.userData as UnitData;
         if (data.health <= 0) continue;
+        if (data.holyChargeHit) continue; // Only hit each enemy once per charge
         const dist = this.player.position.distanceTo(enemy.position);
-        if (dist < 3) {
-          const kb = new THREE.Vector3().subVectors(enemy.position, this.player.position).normalize().multiplyScalar(5);
+        if (dist < 4) {
+          const dmg = Math.floor(this.stats.attackMin + Math.random() * (this.stats.attackMax - this.stats.attackMin));
+          data.health -= dmg;
+          data.holyChargeHit = true;
+          const kb = new THREE.Vector3().subVectors(enemy.position, this.player.position).normalize().multiplyScalar(8);
           enemy.position.add(kb);
-          data.stunTimer = Math.max(data.stunTimer, 0.5);
+          data.stunTimer = Math.max(data.stunTimer, 1.0);
+          this.particles.createBloodEffect(enemy.position);
           this.particles.createBlockSparks(enemy.position);
+          if (data.health <= 0) {
+            this.onKillEnemy(enemy);
+          } else {
+            updateHealthBar(enemy);
+          }
         }
       }
       this.particles.createDashTrailEffect(this.player.position, new THREE.Vector3(state.dashDirX, 0, state.dashDirZ));
+    }
+
+    // Reset holy charge hit flags when dash ends
+    if (!state.dashActive && this.classId === 'paladin') {
+      for (const enemy of enemies) {
+        (enemy.userData as UnitData).holyChargeHit = false;
+      }
+    }
+
+    // Evasive Roll dust trail
+    if (state.dashActive && !state.isLeaping && this.classId === 'archer') {
+      const dir = new THREE.Vector3(state.dashDirX, 0, state.dashDirZ);
+      this.particles.createDodgeRollDust(this.player.position, dir);
     }
   }
 
@@ -231,15 +263,13 @@ export class PlayerController {
       moveDir.normalize();
       this.player.position.x += moveDir.x * speed * dt;
       this.player.position.z += moveDir.z * speed * dt;
-      const ta = Math.atan2(moveDir.x, moveDir.z);
-      let d = ta - this.player.rotation.y;
-      while (d > Math.PI) d -= Math.PI * 2;
-      while (d < -Math.PI) d += Math.PI * 2;
-      this.player.rotation.y += d * 8 * dt;
       this.currentSpeed = speed;
     } else {
       this.currentSpeed = 0;
     }
+
+    // Always face camera direction
+    this.player.rotation.y = state.cameraAngleY;
 
     // Jump
     if (keys['Space'] && state.onGround) {
@@ -283,9 +313,13 @@ export class PlayerController {
     // Attack
     state.attackCooldownTimer -= dt;
 
+    const atkSpeed = this.stats.attackSpeed || 1.0;
+    const atkDuration = ATTACK_DURATION / atkSpeed;
+    const atkCooldown = ATTACK_COOLDOWN / atkSpeed;
+
     if (mouseDown[0] && !state.isAttacking && state.attackCooldownTimer <= 0 && state.playerStamina > 10) {
       state.isAttacking = true;
-      state.attackTimer = ATTACK_DURATION;
+      state.attackTimer = atkDuration;
       state.playerStamina -= ATTACK_STAMINA_COST;
       this.hitEnemiesThisSwing.clear();
 
@@ -297,7 +331,7 @@ export class PlayerController {
 
     if (state.isAttacking) {
       state.attackTimer -= dt;
-      const progress = 1 - state.attackTimer / ATTACK_DURATION;
+      const progress = 1 - state.attackTimer / atkDuration;
 
       // Melee hit check at strike phase
       if (this.stats.attackType === 'melee' && progress > 0.25 && progress < 0.55) {
@@ -336,7 +370,7 @@ export class PlayerController {
 
       if (state.attackTimer <= 0) {
         state.isAttacking = false;
-        state.attackCooldownTimer = ATTACK_COOLDOWN;
+        state.attackCooldownTimer = atkCooldown;
         resetAttackPose(this.player);
       }
     }
@@ -352,8 +386,12 @@ export class PlayerController {
     // Save physics Y — locomotion animation overwrites position.y with a bounce
     const physicsY = this.player.position.y;
 
-    if (state.isAttacking) {
-      const progress = 1 - state.attackTimer / ATTACK_DURATION;
+    // Ability2 animations take priority over everything else
+    if (state.dashActive || state.ability2AnimTimer > 0) {
+      this.updateAbility2Animation();
+    } else if (state.isAttacking) {
+      const atkSpd = this.stats.attackSpeed || 1.0;
+      const progress = 1 - state.attackTimer / (ATTACK_DURATION / atkSpd);
       if (this.stats.attackType === 'melee') {
         updateMeleeAttackAnimation(this.player, progress);
       } else {
@@ -382,6 +420,48 @@ export class PlayerController {
     }
   }
 
+  private updateAbility2Animation() {
+    const state = this.state;
+
+    switch (this.classId) {
+      case 'warrior':
+        if (state.isLeaping) {
+          updateWarLeapAnimation(this.player, state.playerVelY);
+        }
+        break;
+      case 'paladin':
+        if (state.dashActive) {
+          const progress = 1 - state.dashTimer / 0.55;
+          updateHolyChargeAnimation(this.player, progress, this.time);
+        }
+        break;
+      case 'archer':
+        if (state.dashActive) {
+          const progress = 1 - state.dashTimer / 0.2;
+          updateEvasiveRollAnimation(this.player, progress);
+        }
+        break;
+      case 'rogue':
+        if (state.ability2AnimTimer > 0) {
+          const progress = 1 - state.ability2AnimTimer / 0.35;
+          updateShadowStepAnimation(this.player, progress);
+        }
+        break;
+      case 'mage':
+        if (state.ability2AnimTimer > 0) {
+          const progress = 1 - state.ability2AnimTimer / 0.3;
+          updateBlinkAnimation(this.player, progress);
+        }
+        break;
+      case 'necromancer':
+        if (state.ability2AnimTimer > 0) {
+          const progress = 1 - state.ability2AnimTimer / 0.5;
+          updateSoulDrainAnimation(this.player, progress);
+        }
+        break;
+    }
+  }
+
   private fireProjectile() {
     const fwd = new THREE.Vector3(
       Math.sin(this.state.cameraAngleY),
@@ -389,17 +469,16 @@ export class PlayerController {
       Math.cos(this.state.cameraAngleY)
     );
 
-    let color = 0xcccccc;
-    if (this.classId === 'mage') color = 0xb56576;
-    else if (this.classId === 'archer') color = 0xe9c46a;
-    else if (this.classId === 'necromancer') color = 0x95d5b2;
-
-    const mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(0.12, 6, 6),
-      new THREE.MeshBasicMaterial({ color })
-    );
+    const mesh = createProjectileMesh(this.classId);
     mesh.position.copy(this.player.position);
     mesh.position.y += 2.0;
+
+    // Orient arrow along flight direction
+    if (this.classId === 'archer') {
+      const target = mesh.position.clone().add(fwd);
+      mesh.lookAt(target);
+    }
+
     this.scene.add(mesh);
 
     const speed = PLAYER_PROJECTILE_SPEED[this.classId] ?? DEFAULT_PLAYER_PROJECTILE_SPEED;
@@ -412,19 +491,23 @@ export class PlayerController {
   }
 
   private updateProjectiles(dt: number, enemies: THREE.Group[]) {
+    const trailColor = getProjectileTrailColor(this.classId);
+
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const proj = this.projectiles[i];
       proj.mesh.position.add(proj.velocity.clone().multiplyScalar(dt));
       proj.life -= dt;
       proj.frameCount++;
 
+      // Re-orient arrow along flight direction each frame
+      if (this.classId === 'archer') {
+        const ahead = proj.mesh.position.clone().add(proj.velocity);
+        proj.mesh.lookAt(ahead);
+      }
+
       // Projectile trail every 3 frames
       if (proj.frameCount % 3 === 0) {
-        let color = 0xcccccc;
-        if (this.classId === 'mage') color = 0xb56576;
-        else if (this.classId === 'archer') color = 0xe9c46a;
-        else if (this.classId === 'necromancer') color = 0x95d5b2;
-        this.particles.createTrailParticle(proj.mesh.position, color);
+        this.particles.createTrailParticle(proj.mesh.position, trailColor);
       }
 
       // Check hits
@@ -464,8 +547,7 @@ export class PlayerController {
 
       if (hit || proj.life <= 0 || proj.mesh.position.y < 0) {
         this.scene.remove(proj.mesh);
-        proj.mesh.geometry.dispose();
-        (proj.mesh.material as THREE.Material).dispose();
+        disposeProjectile(proj.mesh);
         this.projectiles.splice(i, 1);
       }
     }
@@ -553,8 +635,7 @@ export class PlayerController {
   dispose() {
     this.projectiles.forEach((p) => {
       this.scene.remove(p.mesh);
-      p.mesh.geometry.dispose();
-      (p.mesh.material as THREE.Material).dispose();
+      disposeProjectile(p.mesh);
     });
     this.projectiles = [];
 

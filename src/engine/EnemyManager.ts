@@ -16,15 +16,17 @@ import {
   MELEE_CHARGE_SPEED_MULT, PROJECTILE_SPREAD_MAX,
 } from '../constants/game';
 import { ParticleSystem } from './ParticleSystem';
+import { createProjectileMesh, disposeProjectile, getProjectileTrailColor } from './ProjectileFactory';
 
 interface AIProjectile {
-  mesh: THREE.Mesh;
+  mesh: THREE.Object3D;
   velocity: THREE.Vector3;
   life: number;
   damageMin: number;
   damageMax: number;
   frameCount: number;
-  color: number;
+  trailColor: number;
+  classId: string;
 }
 
 const SHIELD_CLASSES = new Set(['warrior', 'paladin']);
@@ -279,18 +281,17 @@ export class EnemyManager {
     const spread = (Math.random() - 0.5) * 2 * PROJECTILE_SPREAD_MAX * spreadFactor;
     dir.applyAxisAngle(new THREE.Vector3(0, 1, 0), spread);
 
-    let color = 0xcccccc;
     const classId = data.classId ?? '';
-    if (classId === 'mage') color = 0xb56576;
-    else if (classId === 'archer') color = 0xe9c46a;
-    else if (classId === 'necromancer') color = 0x95d5b2;
-
-    const mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(0.12, 6, 6),
-      new THREE.MeshBasicMaterial({ color })
-    );
+    const mesh = createProjectileMesh(classId);
     mesh.position.copy(attacker.position);
     mesh.position.y += 2.0;
+
+    // Orient arrow along flight direction
+    if (classId === 'archer') {
+      const lookTarget = mesh.position.clone().add(dir);
+      mesh.lookAt(lookTarget);
+    }
+
     this.scene.add(mesh);
 
     const speed = CLASS_PROJECTILE_SPEED[classId] ?? DEFAULT_AI_PROJECTILE_SPEED;
@@ -301,7 +302,8 @@ export class EnemyManager {
       damageMin: data.damageMin ?? 8,
       damageMax: data.damageMax ?? 16,
       frameCount: 0,
-      color,
+      trailColor: getProjectileTrailColor(classId),
+      classId,
     });
   }
 
@@ -321,9 +323,15 @@ export class EnemyManager {
       proj.life -= dt;
       proj.frameCount++;
 
+      // Re-orient arrow along flight direction
+      if (proj.classId === 'archer') {
+        const ahead = proj.mesh.position.clone().add(proj.velocity);
+        proj.mesh.lookAt(ahead);
+      }
+
       // Projectile trail
       if (proj.frameCount % 3 === 0 && this.particles) {
-        this.particles.createTrailParticle(proj.mesh.position, proj.color);
+        this.particles.createTrailParticle(proj.mesh.position, proj.trailColor);
       }
 
       let hit = false;
@@ -373,8 +381,7 @@ export class EnemyManager {
 
       if (hit || proj.life <= 0 || proj.mesh.position.y < 0) {
         this.scene.remove(proj.mesh);
-        proj.mesh.geometry.dispose();
-        (proj.mesh.material as THREE.Material).dispose();
+        disposeProjectile(proj.mesh);
         this.projectiles.splice(i, 1);
       }
     }
@@ -383,8 +390,7 @@ export class EnemyManager {
   dispose() {
     for (const proj of this.projectiles) {
       this.scene.remove(proj.mesh);
-      proj.mesh.geometry.dispose();
-      (proj.mesh.material as THREE.Material).dispose();
+      disposeProjectile(proj.mesh);
     }
     this.projectiles = [];
   }

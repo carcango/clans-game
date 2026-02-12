@@ -168,12 +168,13 @@ export class ArmyBattleEngine {
       dashSpeed: 0,
       dashInvulnerable: false,
       isLeaping: false,
+      ability2AnimTimer: 0,
     };
 
     buildTerrain(this.ctx.scene);
 
     // Spawn player at south side
-    this.player = spawnPlayerUnit(this.ctx.scene, this.playerClassId, this.playerLevel, -45);
+    this.player = spawnPlayerUnit(this.ctx.scene, this.playerClassId, this.playerLevel, -60);
 
     // Spawn allied army (excluding the player unit's slot)
     const allyUnits = this.playerArmy.map((u) => ({ ...u }));
@@ -256,7 +257,8 @@ export class ArmyBattleEngine {
         (ally) => {
           this.ctx.scene.add(ally);
           this.allies.push(ally);
-        }
+        },
+        (enemy) => this.handleEnemyKill(enemy)
       );
     }
     if (this.input.keys['KeyE']) {

@@ -33,9 +33,9 @@ export function spawnArmy(
     }
   }
 
-  const baseZ = zSide * 45;
-  const frontZ = baseZ - zSide * 5; // melee row closer to center
-  const backZ = baseZ + zSide * 5;  // ranged row further back
+  const baseZ = zSide * 65;
+  const frontZ = baseZ - zSide * 8; // melee row closer to center
+  const backZ = baseZ + zSide * 8;  // ranged row further back
 
   spawnRow(scene, melee, team, frontZ, outArray);
   spawnRow(scene, ranged, team, backZ, outArray);
@@ -84,8 +84,8 @@ function spawnRow(
     data.speed = stats.speed * (0.80 + Math.random() * 0.35);
     data.attackTimer = Math.random();
     data.attackCooldown = stats.attackType === 'ranged'
-      ? 1.2 + Math.random() * 0.5
-      : 0.7 + Math.random() * 0.5;
+      ? 1.8 + Math.random() * 0.6
+      : 1.0 + Math.random() * 0.5;
     data.isAttacking = false;
     data.attackTime = 0;
     data.stunTimer = 0;

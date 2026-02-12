@@ -46,7 +46,8 @@ export class AbilitySystem {
     allies: THREE.Group[],
     heroClass: HeroClass,
     addCombatLog: (text: string, type?: ToastType) => void,
-    addAlly: (ally: THREE.Group) => void
+    addAlly: (ally: THREE.Group) => void,
+    onKillEnemy?: (enemy: THREE.Group) => void
   ): boolean {
     if (state.abilityCooldown > 0) return false;
     if (state.playerStamina < stats.abilityCost) return false;
@@ -55,7 +56,7 @@ export class AbilitySystem {
 
     switch (classId) {
       case 'warrior':
-        success = this.shieldBash(player, state.cameraAngleY, enemies, stats, addCombatLog);
+        success = this.shieldBash(player, state.cameraAngleY, enemies, stats, addCombatLog, onKillEnemy);
         break;
       case 'archer':
         success = this.arrowVolley(player, state.cameraAngleY, stats, addCombatLog);
@@ -64,7 +65,7 @@ export class AbilitySystem {
         success = this.fireball(player, state.cameraAngleY, enemies, stats, addCombatLog);
         break;
       case 'paladin':
-        success = this.holyAura(player, allies, stats, addCombatLog);
+        success = this.holyAura(player, allies, stats, state, addCombatLog);
         break;
       case 'rogue':
         state.backstabReady = true;
@@ -95,11 +96,12 @@ export class AbilitySystem {
     cameraAngleY: number,
     enemies: THREE.Group[],
     stats: ClassStats,
-    addCombatLog: (text: string, type?: ToastType) => void
+    addCombatLog: (text: string, type?: ToastType) => void,
+    onKillEnemy?: (enemy: THREE.Group) => void
   ): boolean {
     const fwd = new THREE.Vector3(Math.sin(cameraAngleY), 0, Math.cos(cameraAngleY));
     let hitCount = 0;
-    const bashDmg = Math.floor((stats.attackMin + stats.attackMax) * 0.25);
+    const bashDmg = Math.floor((stats.attackMin + stats.attackMax) * 0.9);
 
     enemies.forEach((enemy) => {
       const data = enemy.userData as UnitData;
@@ -107,16 +109,18 @@ export class AbilitySystem {
       const toE = new THREE.Vector3().subVectors(enemy.position, player.position);
       toE.y = 0;
       const dist = toE.length();
-      if (dist < 4 && fwd.dot(toE.normalize()) > 0.2) {
-        data.stunTimer = 1.5;
+      if (dist < 9 && fwd.dot(toE.normalize()) > -0.2) {
+        data.stunTimer = 2.5;
         data.health -= bashDmg;
-        const kb = toE.normalize().multiplyScalar(3);
+        const kb = toE.normalize().multiplyScalar(8);
         enemy.position.add(kb);
         this.particles.createBloodEffect(enemy.position);
-        if (data.health > 0) {
+        hitCount++;
+        if (data.health <= 0) {
+          onKillEnemy?.(enemy);
+        } else {
           updateHealthBar(enemy);
         }
-        hitCount++;
       }
     });
 
@@ -263,10 +267,17 @@ export class AbilitySystem {
     player: THREE.Group,
     allies: THREE.Group[],
     stats: ClassStats,
+    state: GameState,
     addCombatLog: (text: string, type?: ToastType) => void
   ): boolean {
     const healAmount = Math.floor(stats.attackMax * 0.5);
     let healed = 0;
+
+    // Heal the player
+    state.playerHealth = Math.min(state.playerMaxHealth, state.playerHealth + healAmount);
+    this.particles.createHolyHealEffect(player.position);
+
+    // Heal nearby allies
     allies.forEach((ally) => {
       const data = ally.userData as UnitData;
       if (data.health <= 0) return;
@@ -280,7 +291,7 @@ export class AbilitySystem {
     });
 
     this.particles.createHolyAuraEffect(player.position, 10);
-    addCombatLog(`Holy Aura healed ${healed} allies for ${healAmount} HP!`, 'info');
+    addCombatLog(`Holy Aura healed self + ${healed} allies for ${healAmount} HP!`, 'info');
     return true;
   }
 
@@ -366,7 +377,7 @@ export class AbilitySystem {
         state.dashDirX = fwd.x;
         state.dashDirZ = fwd.z;
         state.dashSpeed = 16;
-        state.playerVelY = 12;
+        state.playerVelY = 13;
         state.onGround = false;
         state.dashInvulnerable = false;
         addCombatLog('War Leap!', 'info');
@@ -374,14 +385,14 @@ export class AbilitySystem {
         break;
       }
       case 'paladin': {
-        // Holy Charge — ground dash forward, invulnerable, knockback enemies in path
+        // Holy Charge — ground dash forward, invulnerable, damage + knockback enemies in path
         const fwd = new THREE.Vector3(Math.sin(state.cameraAngleY), 0, Math.cos(state.cameraAngleY));
         state.dashActive = true;
         state.isLeaping = false;
-        state.dashTimer = 0.35;
+        state.dashTimer = 0.55;
         state.dashDirX = fwd.x;
         state.dashDirZ = fwd.z;
-        state.dashSpeed = 35;
+        state.dashSpeed = 40;
         state.dashInvulnerable = true;
         this.particles.createDashTrailEffect(player.position, fwd);
         addCombatLog('Holy Charge!', 'info');
@@ -420,6 +431,7 @@ export class AbilitySystem {
           nearest.position.z - player.position.z
         );
         state.stealthTimer = 1;
+        state.ability2AnimTimer = 0.35;
         this.setPlayerOpacity(player, 0.25);
         // Particle at destination
         this.particles.createShadowStepEffect(player.position.clone());
@@ -452,6 +464,7 @@ export class AbilitySystem {
         // Blink effects
         this.particles.createBlinkEffect(oldPos);
         this.particles.createBlinkEffect(player.position.clone());
+        state.ability2AnimTimer = 0.3;
         // Frost nova at old position — damage + stun nearby enemies
         const frostRadius = 4;
         const frostDmg = Math.floor((stats.attackMin + stats.attackMax) * 0.3);
@@ -497,6 +510,7 @@ export class AbilitySystem {
         }
         const healAmount = Math.floor(totalDrained * 0.5);
         state.playerHealth = Math.min(state.playerMaxHealth, state.playerHealth + healAmount);
+        state.ability2AnimTimer = 0.5;
         this.particles.createSoulDrainEffect(player.position, drainRadius);
         if (healAmount > 0) {
           this.particles.createHealEffect(player.position);
@@ -534,6 +548,9 @@ export class AbilitySystem {
 
     if (state.ability2Cooldown > 0) {
       state.ability2Cooldown = Math.max(0, state.ability2Cooldown - dt);
+    }
+    if (state.ability2AnimTimer > 0) {
+      state.ability2AnimTimer = Math.max(0, state.ability2AnimTimer - dt);
     }
 
     // Stealth timer — make player semi-transparent while stealthed
